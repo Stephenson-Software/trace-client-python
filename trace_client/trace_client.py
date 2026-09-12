@@ -1,4 +1,4 @@
-"""trace-client 0.1.0 -- https://github.com/Stephenson-Software/trace-client-python
+"""trace-client 0.1.1 -- https://github.com/Stephenson-Software/trace-client-python
 
 One call to report that a program was used. Copy this file into a project as
 is, or vendor the package; either way there is nothing else to add. Standard
@@ -16,7 +16,7 @@ import urllib.error
 import urllib.request
 from typing import Dict, Mapping, Optional
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 _LOG = logging.getLogger("trace")
 
@@ -96,23 +96,28 @@ class TraceClient:
             _LOG.debug("[trace] could not queue %s: %s", name, failure)
 
     def close(self, timeout: float = TIMEOUT_SECONDS) -> None:
-        """Stop the sending thread. Reports already queued are dropped; one in
-        flight is given ``timeout`` seconds to finish. Safe to call more than
+        """Stop the sending thread, giving reports already queued up to
+        ``timeout`` seconds in total to be sent first. A program that reports
+        and then exits within milliseconds -- a CLI, a short script -- would
+        otherwise lose its one event to the race between queueing it and the
+        sender thread picking it up. The bound still holds: an unreachable
+        server costs at most ``timeout``, never a hang. Safe to call more than
         once, and on a disabled client."""
         if self._queue is None or self._thread is None:
             return
         q, thread = self._queue, self._thread
-        self._queue = None
-        # Drain whatever is queued so the sentinel is the next thing the thread sees.
+        self._queue = None  # report() is a no-op from here on
         try:
-            while True:
-                q.get_nowait()
-        except queue.Empty:
-            pass
-        try:
-            q.put_nowait(None)
+            q.put_nowait(None)  # sentinel behind whatever is queued
         except queue.Full:
-            pass
+            # A full queue means 256 reports are waiting; the sentinel would be
+            # the 257th. Drop the oldest to make room -- one lost report beats a
+            # thread that never stops.
+            try:
+                q.get_nowait()
+                q.put_nowait(None)
+            except (queue.Empty, queue.Full):
+                pass
         thread.join(timeout)
 
     # -- internals --------------------------------------------------------

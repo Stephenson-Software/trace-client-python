@@ -1,4 +1,4 @@
-"""trace-client 0.1.0 -- https://github.com/Stephenson-Software/trace-client-python
+"""trace-client 0.1.1 -- https://github.com/Stephenson-Software/trace-client-python
 
 One call to report that a program was used. Copy ``trace_client.py`` (this
 package's single module) into a project as is, or vendor the package; either

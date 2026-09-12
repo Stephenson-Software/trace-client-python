@@ -153,6 +153,25 @@ class TraceClientTest(unittest.TestCase):
         self.capture.release.set()
         client.close()
 
+    def test_close_sends_what_was_just_queued_before_stopping(self):
+        # A CLI reports once and exits at once. Without draining, the event
+        # races the sender thread and is lost a good fraction of the time;
+        # 30 back-to-back report()+close() pairs make that fraction visible.
+        for i in range(30):
+            client = TraceClient(self.base_url, "MyCli", key="k")
+            client.report("startup", tags={"run": str(i)})
+            client.close()
+        self.assertEqual(30, len(self.capture.requests), "every report()+close() pair must deliver")
+
+    def test_close_still_returns_within_the_timeout_when_the_server_hangs(self):
+        self.capture.release.clear()  # never answers
+        client = TraceClient(self.base_url, "MyCli", key="k")
+        client.report("startup")
+        before = time.monotonic()
+        client.close(timeout=1.0)
+        self.assertLess(time.monotonic() - before, 2.0, "draining must be bounded by the timeout")
+        self.capture.release.set()
+
     def test_close_is_prompt_and_idempotent(self):
         client = TraceClient(self.base_url, "MyGame", key="k")
         client.report("startup")
