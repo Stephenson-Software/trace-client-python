@@ -31,10 +31,28 @@ trace.close()
 | **Bounded** | At most 256 reports wait to be sent; past that, new ones are dropped. A trace server that is unreachable for a week costs a few kilobytes, not your memory. |
 | **`close()` drains** | Reports already queued get up to the client timeout (5 s total) to be sent before the thread stops, so a CLI that reports and exits at once does not lose its event. Still bounded: an unreachable server delays exit by at most the timeout. |
 
-Reporting is **opt-out**: `enabled=False`, or no key at all, yields a client
-that does nothing and costs nothing. A program that runs on other people's
-machines should expose that switch in its settings — and say so once, the
-first time it runs, so the player knows it is on and where to turn it off.
+## Turning it off
+
+Reporting is **opt-out**. Any one of these yields a client that does nothing
+and costs nothing; the first that applies is the reason:
+
+- **Environment, for every trace-reporting program at once:**
+  `TRACE_USAGE_REPORTING=off` (also `false`, `0`, `no`; case-insensitive) or
+  `DO_NOT_TRACK=1` (also `true`, `yes`; the
+  [consoledonottrack.com](https://consoledonottrack.com) convention). The
+  constructor checks these before anything else, so they win over the
+  program's own setting. Any other value, or an unset variable, leaves that
+  setting in charge.
+- **The program's own setting:** `enabled=False`.
+- **No key** (or a blank one).
+
+`client.disabled_reason` says which one applied — `"environment"`, `"config"`
+or `"no key"` — and is `None` when the client reports, so a program can log
+it. A program that runs on other people's machines should expose the
+`enabled` switch in its settings — and say so once, the first time it runs,
+so the player knows reporting is on, that `TRACE_USAGE_REPORTING=off` turns
+it off, and where the details are:
+<https://github.com/Stephenson-Software/trace#usage-reporting>.
 
 ## Getting it
 
