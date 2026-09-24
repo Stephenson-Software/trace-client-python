@@ -134,9 +134,11 @@ class TraceClient:
                tags: Optional[Mapping[str, str]] = None) -> None:
         """Report that ``name`` happened, with an optional numeric value and
         optional string tags. Returns immediately; see the class docstring."""
-        if self._queue is None or not name or not name.strip():
+        if self._queue is None:
             return
         try:
+            if not name or not name.strip():
+                return
             body = _json(self._application, name, value, tags)
             self._queue.put_nowait(body)
         except queue.Full:
@@ -181,14 +183,16 @@ class TraceClient:
             self._send(body)
 
     def _send(self, body: bytes) -> None:
-        request = urllib.request.Request(
-            self._endpoint, data=body, method="POST",
-            headers={
-                "Content-Type": "application/json; charset=utf-8",
-                "Authorization": "Bearer " + self._key,
-                "User-Agent": "trace-client-python/%s (%s)" % (__version__, self._application),
-            })
         try:
+            # Built inside the try: a base URL without a scheme fails here, and
+            # an uncaught error would kill the sender thread with a traceback.
+            request = urllib.request.Request(
+                self._endpoint, data=body, method="POST",
+                headers={
+                    "Content-Type": "application/json; charset=utf-8",
+                    "Authorization": "Bearer " + self._key,
+                    "User-Agent": "trace-client-python/%s (%s)" % (__version__, self._application),
+                })
             with urllib.request.urlopen(request, timeout=self.TIMEOUT_SECONDS) as response:
                 status = response.status
                 response.read()
