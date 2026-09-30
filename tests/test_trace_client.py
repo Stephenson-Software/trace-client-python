@@ -225,6 +225,28 @@ class TraceClientTest(unittest.TestCase):
         client.close()
         self.assertFalse(self.capture.arrived.wait(0.3))
 
+    def test_report_does_not_raise_for_a_name_that_is_not_a_string(self):
+        client = TraceClient(self.base_url, "MyGame", "1.2.3", key="k")
+        client.report(123)  # must not raise
+        client.close()
+        self.assertFalse(self.capture.arrived.wait(0.3), "a report that could not be built is dropped")
+        self.assertTrue(any("could not queue 123" in r.getMessage() for r in self.log),
+                        [r.getMessage() for r in self.log])
+        self.assertTrue(all(r.levelno == logging.DEBUG for r in self.log))
+
+    def test_a_base_url_without_a_scheme_is_logged_not_a_dead_thread(self):
+        crashes = []
+        with mock.patch.object(threading, "excepthook", crashes.append):
+            client = TraceClient("trace.example.org", "MyGame", "1.2.3", key="k")
+            client.report("startup")
+            client.report("shutdown")
+            client.close()
+        self.assertEqual([], crashes, "the sender thread must not die with a traceback on stderr")
+        failures = [r for r in self.log if "could not deliver" in r.getMessage()]
+        self.assertEqual(2, len(failures), "each report is logged and the thread keeps going: %s"
+                         % [r.getMessage() for r in self.log])
+        self.assertTrue(all(r.levelno == logging.DEBUG for r in self.log))
+
     def test_constructor_rejects_a_missing_base_url_or_application(self):
         for base_url, application in ((None, "MyGame"), (" ", "MyGame"), ("http://x", None), ("http://x", "")):
             with self.assertRaises(ValueError):
