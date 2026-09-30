@@ -12,15 +12,30 @@ the two speak the same wire format and make the same promises.
 ```python
 from trace_client import TraceClient
 
-trace = TraceClient("https://trace.danielstephenson.dev", "roam",
+trace = TraceClient("https://trace.danielstephenson.dev", "roam", __version__,
                     key=settings.usage_reporting_key,
                     enabled=settings.usage_reporting_enabled)
-trace.report("startup", tags={"version": __version__})
+trace.report("startup")
 trace.report("world-load", tags={"kind": "procedural"})
 
 # on shutdown -- also before a short-lived program exits, so the event is sent
 trace.close()
 ```
+
+## Every event carries the program's version
+
+The third argument to `TraceClient` is the program's own version, and it is
+required: a missing or blank one, or one over 255 characters after trimming,
+raises `ValueError`. Every event the client sends — `startup`, `command`,
+anything else — carries it as the tag `version`, so every event can be tied
+to a release, not just `startup`. An event that passes its own `version` tag
+keeps it, and the dict passed as `tags` is never modified. There is no need
+to tag `startup` by hand any more.
+
+Before 0.3.0, the constructor took two positional arguments and only events
+tagged by hand carried a version. Upgrading is one argument —
+`TraceClient(base_url, application, __version__, key=..., enabled=...)` —
+and any `tags={"version": __version__}` passed to `report` can be dropped.
 
 ## What `report` promises
 
@@ -70,10 +85,10 @@ There is no PyPI package yet; the file is the distribution.
 `POST {base_url}/api/metrics` with `Authorization: Bearer <key>` and a body of
 
 ```json
-{"application":"roam","name":"startup","tags":{"version":"1.4.0"}}
+{"application":"roam","name":"command","value":1.0,"tags":{"name":"home","version":"1.4.0"}}
 ```
 
-`value` and `tags` are omitted when not given. The server assigns the
+`value` is omitted when not given; `tags` always holds at least `version`. The server assigns the
 timestamp. A `201` is success; anything else is logged at `DEBUG` and dropped.
 
 ## Keys
