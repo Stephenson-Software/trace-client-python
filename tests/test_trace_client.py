@@ -247,6 +247,30 @@ class TraceClientTest(unittest.TestCase):
                          % [r.getMessage() for r in self.log])
         self.assertTrue(all(r.levelno == logging.DEBUG for r in self.log))
 
+    def test_the_sender_thread_survives_an_unexpected_error_from_send(self):
+        crashes = []
+        real_send = TraceClient._send
+        calls = []
+
+        def send_that_fails_once(client, body):
+            calls.append(body)
+            if len(calls) == 1:
+                raise RuntimeError("boom")
+            real_send(client, body)
+
+        with mock.patch.object(threading, "excepthook", crashes.append), \
+                mock.patch.object(TraceClient, "_send", send_that_fails_once):
+            client = TraceClient(self.base_url, "MyGame", "1.2.3", key="k")
+            client.report("first")
+            client.report("second")
+            self.assertTrue(self.capture.arrived.wait(5), "a later report is still delivered")
+            client.close()
+        self.assertEqual([], crashes, "the sender thread must not die with a traceback on stderr")
+        self.assertEqual(["second"], [json.loads(r["body"])["name"] for r in self.capture.requests])
+        self.assertTrue(any("sender failed" in r.getMessage() and "boom" in r.getMessage() for r in self.log),
+                        [r.getMessage() for r in self.log])
+        self.assertTrue(all(r.levelno == logging.DEBUG for r in self.log))
+
     def test_constructor_rejects_a_missing_base_url_or_application(self):
         for base_url, application in ((None, "MyGame"), (" ", "MyGame"), ("http://x", None), ("http://x", "")):
             with self.assertRaises(ValueError):
