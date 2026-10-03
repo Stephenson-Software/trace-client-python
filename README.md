@@ -37,6 +37,66 @@ tagged by hand carried a version. Upgrading is one argument —
 `TraceClient(base_url, application, __version__, key=..., enabled=...)` —
 and any `tags={"version": __version__}` passed to `report` can be dropped.
 
+## Every event carries a random installation ID
+
+Since 0.4.0, every event can also carry the tag `install`: a random ID for
+the installation, so the trace server can count **distinct installations**
+("active installs in the last 30 days") rather than raw events — the same
+idea as trace-client-java's server ID and bStats' `serverUuid`. It is said
+out loud here because it is the one thing the client sends that is the same
+from one event to the next.
+
+**What it is.** A random `uuid.uuid4()`. It is not derived from anything —
+not a hostname, an IP address, a MAC address, a player, an account or a
+path. It identifies no person and no address; all it can say is "these
+events came from the same installation". (The trace server still sees the
+IP address of every HTTP request, as every web server does.)
+
+**Where it lives.** Wherever the program says — there is no default location
+and no hidden file. Without `install_id=` or `install_id_file=`, no ID is
+made up, nothing is written, and no `install` tag is sent. The simplest way
+in is a file next to the program's own settings:
+
+```python
+trace = TraceClient("https://trace.danielstephenson.dev", "roam", __version__,
+                    key=settings.usage_reporting_key,
+                    enabled=settings.usage_reporting_enabled,
+                    install_id_file=os.path.join(settings_dir, "trace-install-id"))
+```
+
+The first time an *enabled* client starts, it writes a new random UUID to
+that file (creating parent directories) and reuses it on every later run.
+The first line that is an ID (`[A-Za-z0-9_.-]`, at most 255 characters) is
+the one used. If the file cannot be read or written, a fresh ID is used in
+memory for that run only — the constructor never raises over it, and a file
+that exists but cannot be read is never overwritten.
+
+A program that already keeps its own settings can pass the ID instead:
+
+```python
+trace = TraceClient(url, "roam", __version__, key=key,
+                    install_id=settings.get("install_id"))  # None or blank: none sent
+```
+
+`install_id=` is trimmed, wins over `install_id_file=`, and over 255
+characters raises `ValueError`, like the version. An event that passes its
+own `install` tag keeps it, and `install` is never added to an event that
+already has 32 tags (the server's limit). `trace.install_id` returns the ID
+in use (`None` when disabled or when there is none), so a program can print
+it.
+
+`TraceClient.install_id_from_file(path)` is the same load-or-create step on
+its own, for a program that wants the ID for something else. Called
+directly, it writes the file whatever the opt-outs say — pass the path as
+`install_id_file=` to keep the guarantee below.
+
+**Resetting it.** Delete the file; the next start writes a new one. Or put
+your own value on its first line.
+
+**Opting out.** Every [opt-out](#turning-it-off) also stops the ID: a
+disabled client never generates one, never reads or writes the file, and
+sends nothing.
+
 ## What `report` promises
 
 | Property | Meaning |
@@ -88,7 +148,8 @@ There is no PyPI package yet; the file is the distribution.
 {"application":"roam","name":"command","value":1.0,"tags":{"name":"home","version":"1.4.0"}}
 ```
 
-`value` is omitted when not given; `tags` always holds at least `version`. The server assigns the
+`value` is omitted when not given; `tags` always holds at least `version`, and
+`install` when the client has an [installation ID](#every-event-carries-a-random-installation-id). The server assigns the
 timestamp. A `201` is success; anything else is logged at `DEBUG` and dropped.
 
 ## Keys

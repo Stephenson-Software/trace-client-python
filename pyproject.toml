@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "trace-client"
-version = "0.3.0"
+version = "0.4.0"
 description = "One call to report that a program was used, to a trace server. Standard library only, Python 3.8+."
 readme = "README.md"
 license = {text = "MIT"}
