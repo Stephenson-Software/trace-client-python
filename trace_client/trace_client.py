@@ -198,7 +198,10 @@ class TraceClient:
             body = q.get()
             if body is None:
                 return
-            self._send(body)
+            try:
+                self._send(body)
+            except Exception as failure:  # noqa: BLE001 - a dead sender would leave the queue filling forever
+                _LOG.debug("[trace] sender failed on %s: %s", body, failure)
 
     def _send(self, body: bytes) -> None:
         try:
