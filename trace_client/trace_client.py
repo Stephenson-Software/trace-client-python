@@ -1,4 +1,4 @@
-"""trace-client 0.4.0 -- https://github.com/Stephenson-Software/trace-client-python
+"""trace-client 0.4.1 -- https://github.com/Stephenson-Software/trace-client-python
 
 One call to report that a program was used. Copy this file into a project as
 is, or vendor the package; either way there is nothing else to add. Standard
@@ -19,7 +19,7 @@ import urllib.request
 import uuid
 from typing import Dict, Mapping, Optional, Union
 
-__version__ = "0.4.0"
+__version__ = "0.4.1"
 
 _LOG = logging.getLogger("trace")
 
