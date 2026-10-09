@@ -331,6 +331,19 @@ class TraceClientTest(unittest.TestCase):
         body = json.loads(_json("App", "n", float("nan"), {"ok": "line\nbreak", "none": None, None: "x"}))
         self.assertEqual({"application": "App", "name": "n", "tags": {"ok": "line\nbreak"}}, body)
 
+    def test_json_drops_infinite_values_but_keeps_zero(self):
+        from trace_client.trace_client import _json
+        for infinite in (float("inf"), float("-inf")):
+            self.assertNotIn("value", json.loads(_json("App", "n", infinite, None)),
+                             "JSON has no infinity; sending one would be rejected by the server")
+        self.assertEqual(0, json.loads(_json("App", "n", 0, None))["value"], "zero is a value, not a missing one")
+
+    def test_json_omits_tags_that_are_empty_after_cleaning_and_stringifies_the_rest(self):
+        from trace_client.trace_client import _json
+        self.assertNotIn("tags", json.loads(_json("App", "n", None, {"none": None})))
+        self.assertNotIn("tags", json.loads(_json("App", "n", None, {})))
+        self.assertEqual({"1": "2", "on": "True"}, json.loads(_json("App", "n", None, {1: 2, "on": True}))["tags"])
+
     def test_queue_is_bounded_and_drops_rather_than_grows(self):
         self.capture.release.clear()  # hold the sender on the first report
         client = TraceClient(self.base_url, "MyGame", "1.2.3", key="k")
@@ -370,6 +383,36 @@ class TraceClientTest(unittest.TestCase):
         client.close()
         self.assertLess(time.monotonic() - before, TraceClient.TIMEOUT_SECONDS + 1)
         self.assertFalse(client.enabled)
+
+    def test_report_after_close_sends_nothing(self):
+        client = TraceClient(self.base_url, "MyGame", "1.2.3", key="k")
+        client.close()
+        client.report("late")  # must not raise
+        self.assertFalse(self.capture.arrived.wait(0.3), "a closed client should send nothing")
+        self.assertEqual([], self.capture.requests)
+
+    def test_close_on_a_full_queue_drops_the_oldest_report_and_still_stops_the_sender(self):
+        self.capture.release.clear()  # hold the sender on the first report
+        client = TraceClient(self.base_url, "MyGame", "1.2.3", key="k")
+        thread = client._thread
+        client.report("seq", tags={"n": "0"})
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and not client._queue.empty():
+            time.sleep(0.01)  # until the sender has taken it and is waiting on the server
+        self.assertTrue(client._queue.empty(), "the sender should have picked up the first report")
+        for n in range(1, TraceClient.QUEUE_CAPACITY + 2):  # one more than fits
+            client.report("seq", tags={"n": str(n)})
+        before = time.monotonic()
+        client.close(timeout=0.5)
+        self.assertLess(time.monotonic() - before, 2.0, "close() must stay bounded with a full queue")
+        self.capture.release.set()
+        thread.join(30)
+        self.assertFalse(thread.is_alive(), "the sentinel must reach the sender even when the queue was full")
+        sent = [json.loads(r["body"])["tags"]["n"] for r in self.capture.requests]
+        self.assertEqual(TraceClient.QUEUE_CAPACITY, len(sent), "in flight + capacity - the displaced oldest")
+        self.assertNotIn("1", sent, "the oldest queued report makes room for the sentinel")
+        self.assertIn("0", sent)
+        self.assertIn(str(TraceClient.QUEUE_CAPACITY), sent)
 
     # -- the per-installation ID ------------------------------------------
 
