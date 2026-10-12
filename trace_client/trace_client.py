@@ -38,8 +38,9 @@ REASON_ENVIRONMENT = "environment"
 REASON_CONFIG = "config"
 REASON_NO_KEY = "no key"
 
-#: The longest a program version may be, after trimming: the trace server's
-#: limit on a tag value.
+#: The longest a tag value the client sets itself -- the program version, the
+#: installation ID -- may be, after trimming: the trace server's limit on a
+#: tag value.
 MAX_TAG_LENGTH = 255
 
 #: The most tags one event carries: the trace server's limit. The ``install``

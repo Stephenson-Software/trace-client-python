@@ -486,10 +486,9 @@ class TraceClientTest(unittest.TestCase):
     def test_a_disabled_client_never_makes_up_or_writes_an_install_id(self):
         directory = self._tmpdir()
         path = os.path.join(directory, "install-id")
-        os.environ["DO_NOT_TRACK"] = "1"
-        by_environment = TraceClient(self.base_url, "MyGame", "1.2.3", key="k", install_id_file=path,
-                                     install_id="explicit")
-        del os.environ["DO_NOT_TRACK"]
+        with mock.patch.dict(os.environ, {"DO_NOT_TRACK": "1"}):
+            by_environment = TraceClient(self.base_url, "MyGame", "1.2.3", key="k", install_id_file=path,
+                                         install_id="explicit")
         by_config = TraceClient(self.base_url, "MyGame", "1.2.3", key="k", enabled=False, install_id_file=path)
         by_no_key = TraceClient(self.base_url, "MyGame", "1.2.3", install_id_file=path)
         for client in (by_environment, by_config, by_no_key):
@@ -507,7 +506,9 @@ class TraceClientTest(unittest.TestCase):
 
     def test_blank_install_id_is_none_and_an_overlong_one_is_rejected(self):
         for blank in (None, "", "   "):
-            self.assertIsNone(TraceClient(self.base_url, "MyGame", "1.2.3", key="k", install_id=blank).install_id)
+            client = TraceClient(self.base_url, "MyGame", "1.2.3", key="k", install_id=blank)
+            self.assertIsNone(client.install_id, repr(blank))
+            client.close()
         with self.assertRaises(ValueError):
             TraceClient(self.base_url, "MyGame", "1.2.3", key="k", install_id="x" * (MAX_TAG_LENGTH + 1))
         with self.assertRaises(ValueError, msg="rejected even on a disabled client, like the version"):
