@@ -9,6 +9,8 @@ import tempfile
 import threading
 import time
 import unittest
+import urllib.error
+import urllib.request
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest import mock
@@ -127,6 +129,40 @@ class TraceClientTest(unittest.TestCase):
         self.assertTrue(self.capture.arrived.wait(5))
         client.close()
         self.assertTrue(any("answered 401" in r.getMessage() for r in self.log), [r.getMessage() for r in self.log])
+
+    def test_a_201_is_delivered_without_logging_anything(self):
+        client = TraceClient(self.base_url, "MyGame", "1.2.3", key="k")
+        client.report("startup")
+        self.assertTrue(self.capture.arrived.wait(5))
+        client.close()
+        self.assertEqual([], [r.getMessage() for r in self.log], "success is silent")
+
+    def test_a_success_status_other_than_201_is_logged_as_not_delivered(self):
+        for status in (200, 204):
+            self.log.clear()
+            self.capture.reply_status = status
+            client = TraceClient(self.base_url, "MyGame", "1.2.3", key="k")
+            client.report("startup")
+            client.close()  # joins the sender, so its log line is written by now
+            self.assertTrue(any("answered %d" % status in r.getMessage() for r in self.log),
+                            "only a 201 is success: %s" % [r.getMessage() for r in self.log])
+            self.assertTrue(all(r.levelno == logging.DEBUG for r in self.log))
+
+    def test_an_error_answer_whose_body_cannot_be_read_still_logs_its_status(self):
+        class Unreadable(urllib.error.HTTPError):
+            def read(self, *args):
+                raise OSError("connection reset while reading the error body")
+
+        answer = Unreadable(self.base_url + "/api/metrics", 503, "Service Unavailable", {}, None)
+        crashes = []
+        with mock.patch.object(threading, "excepthook", crashes.append), \
+                mock.patch.object(urllib.request, "urlopen", side_effect=answer):
+            client = TraceClient(self.base_url, "MyGame", "1.2.3", key="k")
+            client.report("startup")  # must not raise
+            client.close()
+        self.assertEqual([], crashes, "the sender thread must not die with a traceback on stderr")
+        self.assertTrue(any("answered 503" in r.getMessage() for r in self.log), [r.getMessage() for r in self.log])
+        self.assertTrue(all(r.levelno == logging.DEBUG for r in self.log))
 
     def test_disabled_client_sends_nothing(self):
         for client in (TraceClient(self.base_url, "MyGame", "1.2.3", key="k", enabled=False),
