@@ -89,6 +89,17 @@ class TraceClientTest(unittest.TestCase):
                          json.loads(request["body"]))
         client.close()
 
+    def test_constructor_trims_the_base_url_application_and_key(self):
+        client = TraceClient("  " + self.base_url + "/  ", "  MyGame  ", "1.2.3", key="  k-123  ")
+        client.report("startup")
+        self.assertTrue(self.capture.arrived.wait(5), "a padded base URL should still reach the server")
+        request = self.capture.requests[0]
+        self.assertEqual("/api/metrics", request["path"])
+        self.assertEqual("Bearer k-123", request["authorization"], "the key is sent without its padding")
+        self.assertEqual("MyGame", json.loads(request["body"])["application"])
+        self.assertTrue(request["user_agent"].endswith("(MyGame)"), request["user_agent"])
+        client.close()
+
     def test_report_carries_value_and_tags_when_given(self):
         client = TraceClient(self.base_url, "MyGame", "1.2.3", key="k")
         client.report("world-load", 2.5, {"seed": "42", "size": 'the "big" one'})
@@ -353,6 +364,14 @@ class TraceClientTest(unittest.TestCase):
         self.assertEqual({"name": "home"}, tags)
         self.assertEqual({"name": "home", "version": "1.2.3"},
                          json.loads(self.capture.requests[0]["body"])["tags"])
+
+    def test_report_drops_none_tags_and_stringifies_the_rest_before_adding_the_version(self):
+        client = TraceClient(self.base_url, "MyGame", "1.2.3", key="k")
+        client.report("command", tags={"version": None, None: "orphan", "count": 7})
+        self.assertTrue(self.capture.arrived.wait(5))
+        self.assertEqual({"count": "7", "version": "1.2.3"}, json.loads(self.capture.requests[0]["body"])["tags"],
+                         "a None version tag does not suppress the program's own version")
+        client.close()
 
     def test_with_version_never_modifies_the_callers_mapping(self):
         from trace_client.trace_client import _with_version
