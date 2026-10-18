@@ -4,10 +4,12 @@ client does."""
 import json
 import logging
 import os
+import re
 import shutil
 import tempfile
 import threading
 import time
+import types
 import unittest
 import urllib.error
 import urllib.request
@@ -267,6 +269,52 @@ class TraceClientTest(unittest.TestCase):
         self.assertTrue(self.capture.arrived.wait(5))
         client.close()
         self.assertEqual("trace-client-python/0.4.1 (MyGame)", self.capture.requests[0]["user_agent"])
+
+    def test_every_place_the_version_is_written_agrees_with_version(self):
+        # A vendored copy is identified by its header, an installed one by
+        # pyproject.toml; a release that bumps one and not the other names
+        # two versions for the same file.
+        from trace_client import __version__
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        for header in ("trace_client/trace_client.py", "trace_client/__init__.py"):
+            with open(os.path.join(root, header), encoding="utf-8") as source:
+                first = source.readline()
+            self.assertEqual('"""trace-client %s -- https://github.com/Stephenson-Software/trace-client-python\n'
+                             % __version__, first, "%s's header names the client version" % header)
+        with open(os.path.join(root, "pyproject.toml"), encoding="utf-8") as project:
+            versions = re.findall(r'^version = "([^"]*)"$', project.read(), re.MULTILINE)
+        self.assertEqual([__version__], versions, "pyproject.toml names the client version")
+
+    def test_the_package_exports_every_public_name_of_the_module(self):
+        # Copying trace_client.py and vendoring the package are both
+        # supported; the same names have to work either way.
+        import trace_client
+        from trace_client import trace_client as module
+        public = {name for name, value in vars(module).items()
+                  if not name.startswith("_") and not isinstance(value, types.ModuleType)
+                  and getattr(value, "__module__", module.__name__) == module.__name__}
+        self.assertEqual(public | {"__version__"}, set(trace_client.__all__))
+        for name in trace_client.__all__:
+            self.assertIs(getattr(module, name), getattr(trace_client, name), name)
+
+    def test_disabled_reason_values_are_the_exported_constants(self):
+        from trace_client import REASON_CONFIG, REASON_ENVIRONMENT, REASON_NO_KEY
+        self.assertEqual(("environment", "config", "no key"), (REASON_ENVIRONMENT, REASON_CONFIG, REASON_NO_KEY),
+                         "the strings the README documents, and the Java client sends the same")
+        self.assertEqual(REASON_CONFIG, TraceClient.disabled().disabled_reason)
+        self.assertEqual(REASON_NO_KEY, TraceClient(self.base_url, "MyGame", "1.2.3").disabled_reason)
+        with mock.patch.dict(os.environ, {"DO_NOT_TRACK": "1"}):
+            self.assertEqual(REASON_ENVIRONMENT, TraceClient(self.base_url, "MyGame", "1.2.3", key="k").disabled_reason)
+
+    def test_report_does_not_raise_for_tags_that_are_not_a_mapping(self):
+        client = TraceClient(self.base_url, "MyGame", "1.2.3", key="k")
+        client.report("startup", tags=["kind"])  # must not raise
+        client.report("command", tags=42)  # must not raise
+        client.close()
+        self.assertFalse(self.capture.arrived.wait(0.3), "a report that could not be built is dropped")
+        self.assertEqual(["startup", "command"],
+                         [r.args[0] for r in self.log if r.getMessage().startswith("[trace] could not queue")])
+        self.assertTrue(all(r.levelno == logging.DEBUG for r in self.log))
 
     def test_report_ignores_a_blank_name(self):
         client = TraceClient(self.base_url, "MyGame", "1.2.3", key="k")
