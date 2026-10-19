@@ -4,6 +4,7 @@ client does."""
 import json
 import logging
 import os
+import pathlib
 import re
 import shutil
 import tempfile
@@ -560,6 +561,23 @@ class TraceClientTest(unittest.TestCase):
             f.write("not an id\n" + "x" * (MAX_TAG_LENGTH + 1) + "\n")
         made = TraceClient.install_id_from_file(path)
         self.assertEqual(made, TraceClient.install_id_from_file(path))
+
+    def test_install_id_from_file_writes_an_id_into_an_existing_empty_file(self):
+        path = os.path.join(self._tmpdir(), "install-id")
+        open(path, "w", encoding="utf-8").close()
+        made = TraceClient.install_id_from_file(path)
+        self.assertEqual(str(uuid.UUID(made)), made)
+        with open(path, encoding="utf-8") as stored:
+            self.assertEqual(made + "\n", stored.read(), "an empty file holds no ID, so one is written")
+
+    def test_install_id_file_accepts_a_path_object(self):
+        path = pathlib.Path(self._tmpdir()) / "nested" / "install-id"
+        made = TraceClient.install_id_from_file(path)
+        self.assertEqual(made + "\n", path.read_text(encoding="utf-8"), "os.PathLike is written like a str")
+        self.assertEqual(made, TraceClient.install_id_from_file(path), "and read back like one")
+        client = TraceClient(self.base_url, "MyGame", "1.2.3", key="k", install_id_file=path)
+        self.assertEqual(made, client.install_id, "the constructor takes the same os.PathLike")
+        self.assertEqual({"version": "1.2.3", "install": made}, self._sent_tags(client))
 
     def test_unwritable_install_id_file_yields_an_in_memory_id_and_never_raises(self):
         # A path under a regular file cannot be created, even as root.
