@@ -385,6 +385,47 @@ class TraceClientTest(unittest.TestCase):
         TraceClient(self.base_url, "MyGame", "9" * MAX_TAG_LENGTH, enabled=False)
         TraceClient(self.base_url, "MyGame", "  " + "9" * MAX_TAG_LENGTH + "  ", enabled=False)
 
+    def test_constructor_errors_name_the_argument_they_reject(self):
+        overlong = "x" * (MAX_TAG_LENGTH + 1)
+        cases = (
+            ("base_url", lambda: TraceClient(" ", "MyGame", "1.2.3")),
+            ("application", lambda: TraceClient(self.base_url, "", "1.2.3")),
+            ("version", lambda: TraceClient(self.base_url, "MyGame", "  ")),
+            ("version", lambda: TraceClient(self.base_url, "MyGame", overlong)),
+            ("install_id", lambda: TraceClient(self.base_url, "MyGame", "1.2.3", install_id=overlong)),
+        )
+        for argument, construct in cases:
+            with self.assertRaises(ValueError) as raised:
+                construct()
+            self.assertTrue(str(raised.exception).startswith(argument + " "),
+                            "the only raising path should say which argument was wrong: %s" % raised.exception)
+        with self.assertRaises(ValueError) as raised:
+            TraceClient(self.base_url, "MyGame", overlong)
+        self.assertIn(str(MAX_TAG_LENGTH), str(raised.exception), "an overlong value names the limit")
+
+    def test_the_sender_is_one_daemon_thread_named_after_the_application(self):
+        before = set(threading.enumerate())
+        client = TraceClient(self.base_url, "  MyGame  ", "1.2.3", key="k")
+        try:
+            started = [t for t in threading.enumerate() if t not in before]
+            self.assertEqual(1, len(started), "one sender thread per client")
+            sender = started[0]
+            self.assertTrue(sender.daemon, "a daemon thread never keeps the host program from exiting")
+            self.assertEqual("trace-client/MyGame", sender.name, "named after the trimmed application")
+        finally:
+            client.close()
+        self.assertFalse(sender.is_alive(), "close() stops it")
+
+    def test_a_disabled_client_starts_no_thread(self):
+        before = set(threading.enumerate())
+        clients = (TraceClient(self.base_url, "MyGame", "1.2.3", key="k", enabled=False),
+                   TraceClient(self.base_url, "MyGame", "1.2.3"),
+                   TraceClient.disabled())
+        started = [t for t in threading.enumerate() if t not in before]
+        self.assertEqual([], started, "a disabled client costs nothing")
+        for client in clients:
+            client.close()
+
     def test_report_tags_a_command_with_the_program_version_trimmed(self):
         client = TraceClient(self.base_url, "MyGame", " 2.0.0-SNAPSHOT ", key="k")
         client.report("command", tags={"name": "home"})
