@@ -262,6 +262,15 @@ class TraceClientTest(unittest.TestCase):
         self.assertFalse(environment_opts_out({}))
         self.assertFalse(environment_opts_out({"DO_NOT_TRACK": "0", "TRACE_USAGE_REPORTING": "on"}))
 
+    def test_environment_opts_out_reads_only_the_mapping_it_is_given(self):
+        with mock.patch.dict(os.environ, {"DO_NOT_TRACK": "1"}):
+            self.assertTrue(environment_opts_out(), "no mapping means the process environment")
+            self.assertTrue(environment_opts_out(None), "None means the process environment")
+            self.assertFalse(environment_opts_out({}), "an explicit mapping replaces the environment")
+        self.assertTrue(environment_opts_out({"DO_NOT_TRACK": " TRUE "}),
+                        "a mapping's values are trimmed and compared without case, like the environment's")
+        self.assertTrue(environment_opts_out({"TRACE_USAGE_REPORTING": " No "}))
+
     def test_user_agent_names_the_client_version(self):
         from trace_client import __version__
         self.assertEqual("0.4.1", __version__)
@@ -500,6 +509,31 @@ class TraceClientTest(unittest.TestCase):
                                 "an unbounded queue would have accepted all %d" % flood)
         self.capture.release.set()
         client.close()
+
+    def test_a_dropped_report_is_logged_at_debug_with_its_name(self):
+        self.capture.release.clear()  # hold the sender on the first report
+        client = TraceClient(self.base_url, "MyGame", "1.2.3", key="k")
+        # The queue holds QUEUE_CAPACITY and the sender at most one more, so
+        # the next report has nowhere to go whatever the sender has picked up.
+        for _ in range(TraceClient.QUEUE_CAPACITY + 1):
+            client.report("filler")
+        client.report("overflow-event")
+        dropped = [r for r in self.log if r.getMessage() == "[trace] queue full, dropped overflow-event"]
+        self.assertEqual(1, len(dropped),
+                         "a drop names the event it dropped: %r" % [r.getMessage() for r in self.log])
+        self.assertTrue(all(r.levelno == logging.DEBUG for r in self.log), "drops are logged at DEBUG only")
+        self.capture.release.set()
+        client.close()
+
+    def test_reports_are_delivered_in_the_order_they_were_made(self):
+        # One sender thread, one request at a time: the server sees events in
+        # the order the program reported them.
+        client = TraceClient(self.base_url, "MyGame", "1.2.3", key="k")
+        for i in range(20):
+            client.report("step", tags={"n": str(i)})
+        client.close()
+        self.assertEqual([str(i) for i in range(20)],
+                         [json.loads(r["body"])["tags"]["n"] for r in self.capture.requests])
 
     def test_close_sends_what_was_just_queued_before_stopping(self):
         # A CLI reports once and exits at once. Without draining, the event
