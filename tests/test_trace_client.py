@@ -103,6 +103,26 @@ class TraceClientTest(unittest.TestCase):
         self.assertTrue(request["user_agent"].endswith("(MyGame)"), request["user_agent"])
         client.close()
 
+    def test_a_base_url_with_a_path_keeps_it_in_front_of_the_endpoint(self):
+        # A trace server behind a reverse proxy lives under a path prefix.
+        client = TraceClient(self.base_url + "/trace//", "MyGame", "1.2.3", key="k")
+        client.report("startup")
+        self.assertTrue(self.capture.arrived.wait(5), "the report should reach the server")
+        client.close()
+        self.assertEqual("/trace/api/metrics", self.capture.requests[0]["path"],
+                         "the prefix is kept and every trailing slash is dropped before /api/metrics")
+
+    def test_non_ascii_names_and_tags_arrive_intact_as_utf8_json(self):
+        client = TraceClient(self.base_url, "Spiel", "1.2.3", key="k")
+        client.report("défi", tags={"ville": "Zürich", "emoji": "\U0001F3B2"})
+        self.assertTrue(self.capture.arrived.wait(5), "the report should reach the server")
+        client.close()
+        request = self.capture.requests[0]
+        self.assertEqual("application/json; charset=utf-8", request["content_type"])
+        self.assertEqual({"application": "Spiel", "name": "défi",
+                          "tags": {"ville": "Zürich", "emoji": "\U0001F3B2", "version": "1.2.3"}},
+                         json.loads(request["body"]), "text the program reports is what the server reads")
+
     def test_report_carries_value_and_tags_when_given(self):
         client = TraceClient(self.base_url, "MyGame", "1.2.3", key="k")
         client.report("world-load", 2.5, {"seed": "42", "size": 'the "big" one'})
