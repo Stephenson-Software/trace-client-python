@@ -699,6 +699,36 @@ class TraceClientTest(unittest.TestCase):
             made = TraceClient.install_id_from_file(path)
             self.assertEqual(str(uuid.UUID(made)), made, repr(path))
 
+    def test_install_id_from_file_takes_an_id_of_exactly_the_tag_length_limit(self):
+        path = os.path.join(self._tmpdir(), "install-id")
+        longest = "x" * MAX_TAG_LENGTH
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("has/a/slash\nhas a space\n" + longest + "\n")
+        self.assertEqual(longest, TraceClient.install_id_from_file(path),
+                         "lines with other characters are skipped; %d characters is still an ID" % MAX_TAG_LENGTH)
+        with open(path, encoding="utf-8") as f:
+            self.assertTrue(f.read().startswith("has/a/slash\n"), "a file with an ID is never rewritten")
+
+    def test_install_id_file_failures_are_logged_at_debug_only(self):
+        TraceClient.install_id_from_file(self._tmpdir())  # a directory cannot be read as a file
+        missing = os.path.join(self._tmpdir(), "install-id")  # absent, so it is written -- and that fails
+        with mock.patch("trace_client.trace_client.os.makedirs", side_effect=PermissionError("read-only")):
+            TraceClient.install_id_from_file(missing)
+        self.assertFalse(os.path.exists(missing))
+        messages = [record.getMessage() for record in self.log]
+        self.assertEqual(2, len(messages), messages)
+        self.assertTrue(messages[0].startswith("[trace] could not read install ID file "), messages[0])
+        self.assertTrue(messages[1].startswith("[trace] could not write install ID file "), messages[1])
+        self.assertEqual({logging.DEBUG}, {record.levelno for record in self.log},
+                         "an ID problem is never louder than DEBUG")
+
+    def test_explicit_install_id_is_sent_as_given_without_the_files_character_rule(self):
+        # The [A-Za-z0-9_.-] rule only picks an ID out of a file; an ID the
+        # program passes itself is only trimmed and length-checked.
+        client = TraceClient(self.base_url, "MyGame", "1.2.3", key="k", install_id="  mine/with spaces  ")
+        self.assertEqual("mine/with spaces", client.install_id)
+        self.assertEqual({"version": "1.2.3", "install": "mine/with spaces"}, self._sent_tags(client))
+
     def test_a_disabled_client_never_makes_up_or_writes_an_install_id(self):
         directory = self._tmpdir()
         path = os.path.join(directory, "install-id")
