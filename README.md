@@ -148,8 +148,11 @@ There is no PyPI package yet; the file is the distribution.
 {"application":"roam","name":"command","value":1.0,"tags":{"name":"home","version":"1.4.0"}}
 ```
 
-`value` is omitted when not given; `tags` always holds at least `version`, and
-`install` when the client has an [installation ID](#every-event-carries-a-random-installation-id). The server assigns the
+`value` is omitted when not given, and when it is NaN or infinite (JSON has no
+such numbers); `tags` always holds at least `version`, and
+`install` when the client has an [installation ID](#every-event-carries-a-random-installation-id). A tag whose
+key or value is `None` is left out, and every other key and value is sent as a
+string. An event with a blank `name` is not sent at all. The server assigns the
 timestamp. A `201` is success; anything else is logged at `DEBUG` and dropped.
 
 ## Keys
