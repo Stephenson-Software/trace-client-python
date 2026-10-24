@@ -244,7 +244,9 @@ class TraceClient:
     def report(self, name: str, value: Optional[float] = None,
                tags: Optional[Mapping[str, str]] = None) -> None:
         """Report that ``name`` happened, with an optional numeric value and
-        optional string tags. Returns immediately; see the class docstring."""
+        optional string tags. Returns immediately; see the class docstring.
+        A blank ``name`` sends nothing. A NaN or infinite ``value``, and any
+        tag whose key or value is ``None``, is left out of the event."""
         if self._queue is None:
             return
         try:
