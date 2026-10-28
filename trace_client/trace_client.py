@@ -19,7 +19,7 @@ import urllib.request
 import uuid
 from typing import Dict, Mapping, Optional, Union
 
-__version__ = "0.4.1"
+__version__ = "0.4.2"
 
 _LOG = logging.getLogger("trace")
 
