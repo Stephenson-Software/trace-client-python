@@ -293,12 +293,12 @@ class TraceClientTest(unittest.TestCase):
 
     def test_user_agent_names_the_client_version(self):
         from trace_client import __version__
-        self.assertEqual("0.4.1", __version__)
+        self.assertEqual("0.4.2", __version__)
         client = TraceClient(self.base_url, "MyGame", "1.2.3", key="k")
         client.report("startup")
         self.assertTrue(self.capture.arrived.wait(5))
         client.close()
-        self.assertEqual("trace-client-python/0.4.1 (MyGame)", self.capture.requests[0]["user_agent"])
+        self.assertEqual("trace-client-python/0.4.2 (MyGame)", self.capture.requests[0]["user_agent"])
 
     def test_every_place_the_version_is_written_agrees_with_version(self):
         # A vendored copy is identified by its header, an installed one by
