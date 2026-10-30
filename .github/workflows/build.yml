@@ -7,11 +7,20 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # Named by interpreter alone, so the check names stay test (3.8) / (3.10) / (3.12).
+    name: test (${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
     strategy:
+      # One interpreter that cannot be installed should not hide the result of the others.
+      fail-fast: false
       matrix:
         # 3.8 is the floor the client promises; the rest are what the programs run.
-        python: ['3.8', '3.10', '3.12']
+        python: ['3.10', '3.12']
+        os: [ubuntu-latest]
+        include:
+          # setup-python publishes no 3.8 build for the newest ubuntu-latest image, so 3.8 is pinned.
+          - python: '3.8'
+            os: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
