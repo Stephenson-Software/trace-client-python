@@ -198,6 +198,26 @@ class TraceClientTest(unittest.TestCase):
         self.assertTrue(any("answered 503" in r.getMessage() for r in self.log), [r.getMessage() for r in self.log])
         self.assertTrue(all(r.levelno == logging.DEBUG for r in self.log))
 
+    def test_a_server_that_never_answers_costs_one_report_not_the_sender(self):
+        # Each request is bounded by TIMEOUT_SECONDS (shortened here), so a
+        # server that accepts the connection and then hangs drops that report
+        # and the sender moves on to the next one.
+        self.capture.release.clear()  # hold the first request unanswered
+        with mock.patch.object(TraceClient, "TIMEOUT_SECONDS", 0.5):
+            client = TraceClient(self.base_url, "MyGame", "1.2.3", key="k")
+            client.report("first")
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline and not any("could not deliver" in r.getMessage() for r in self.log):
+                time.sleep(0.05)
+            self.assertTrue(any("could not deliver" in r.getMessage() for r in self.log),
+                            "a hung request must time out: %s" % [r.getMessage() for r in self.log])
+            self.capture.release.set()
+            client.report("second")
+            client.close()
+        self.assertIn("second", [json.loads(r["body"])["name"] for r in self.capture.requests],
+                      "the sender is still alive after a request times out")
+        self.assertTrue(all(r.levelno == logging.DEBUG for r in self.log))
+
     def test_disabled_client_sends_nothing(self):
         for client in (TraceClient(self.base_url, "MyGame", "1.2.3", key="k", enabled=False),
                        TraceClient(self.base_url, "MyGame", "1.2.3"),
