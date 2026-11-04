@@ -18,7 +18,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest import mock
 
-from trace_client import MAX_TAG_LENGTH, MAX_TAGS, TraceClient, environment_opts_out
+from trace_client import MAX_TAG_LENGTH, MAX_TAGS, TraceClient, __version__, environment_opts_out
 
 _ENV_VARS = ("TRACE_USAGE_REPORTING", "DO_NOT_TRACK")
 
@@ -122,6 +122,22 @@ class TraceClientTest(unittest.TestCase):
         self.assertEqual({"application": "Spiel", "name": "défi",
                           "tags": {"ville": "Zürich", "emoji": "\U0001F3B2", "version": "1.2.3"}},
                          json.loads(request["body"]), "text the program reports is what the server reads")
+
+    def test_an_application_name_a_header_cannot_carry_still_delivers_its_events(self):
+        # The name goes in the User-Agent as well as the body, and a header
+        # refuses most of Unicode and any line break.
+        for application, shown in (("ゲーム", "???"), ("dice\U0001F3B2", "dice?"), ("two\nlines", "two?lines"),
+                                   ("Zürich", "Zürich")):
+            self.capture.requests.clear()
+            client = TraceClient(self.base_url, application, "1.2.3", key="k")
+            client.report("startup")
+            client.close()
+            self.assertEqual(1, len(self.capture.requests), "%r lost its event: %s"
+                             % (application, [r.getMessage() for r in self.log]))
+            request = self.capture.requests[0]
+            self.assertEqual(application, json.loads(request["body"])["application"],
+                             "the event keeps the exact name; only the header is approximate")
+            self.assertEqual("trace-client-python/%s (%s)" % (__version__, shown), request["user_agent"])
 
     def test_report_carries_value_and_tags_when_given(self):
         client = TraceClient(self.base_url, "MyGame", "1.2.3", key="k")
