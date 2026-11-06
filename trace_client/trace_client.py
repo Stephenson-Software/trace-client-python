@@ -53,6 +53,9 @@ INSTALL_TAG = "install"
 # What install_id_from_file accepts as an ID on a line of its file.
 _INSTALL_ID_LINE = re.compile(r"^[A-Za-z0-9_.-]{1,%d}$" % MAX_TAG_LENGTH)
 
+# What the User-Agent header cannot carry: everything but printable Latin-1.
+_NOT_IN_A_HEADER = re.compile(r"[^\x20-\x7e\xa0-\xff]")
+
 
 def environment_opts_out(environ: Optional[Mapping[str, str]] = None) -> bool:
     """Whether the environment asks for usage reporting to be off, via
@@ -308,7 +311,7 @@ class TraceClient:
                 headers={
                     "Content-Type": "application/json; charset=utf-8",
                     "Authorization": "Bearer " + self._key,
-                    "User-Agent": "trace-client-python/%s (%s)" % (__version__, self._application),
+                    "User-Agent": _user_agent(self._application),
                 })
             with urllib.request.urlopen(request, timeout=self.TIMEOUT_SECONDS) as response:
                 status = response.status
@@ -324,6 +327,14 @@ class TraceClient:
             return
         if status != 201:
             _LOG.debug("[trace] trace server answered %s for %s", status, body)
+
+
+def _user_agent(application: str) -> str:
+    """The ``User-Agent`` for ``application``. A header carries printable
+    Latin-1 and nothing else, and one it cannot carry stops the request, so
+    any other character becomes ``?`` here. The event itself keeps the exact
+    name: what a program is called must not cost it every report."""
+    return "trace-client-python/%s (%s)" % (__version__, _NOT_IN_A_HEADER.sub("?", application))
 
 
 def _with_version(tags: Optional[Mapping[str, str]], version: str) -> Dict[str, str]:

@@ -155,6 +155,10 @@ key or value is `None` is left out, and every other key and value is sent as a
 string. An event with a blank `name` is not sent at all. The server assigns the
 timestamp. A `201` is success; anything else is logged at `DEBUG` and dropped.
 
+The `User-Agent` is `trace-client-python/<client version> (<application>)`. Any
+character of the application's name that a header cannot carry (outside printable
+Latin-1) becomes `?` there; `application` in the body is always the exact name.
+
 ## Keys
 
 A key identifies the program to the server and lets the operator revoke it;
