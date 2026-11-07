@@ -139,7 +139,16 @@ class TraceClient:
         longer than :data:`MAX_TAG_LENGTH` characters is a
         :class:`ValueError`. ``install_id_file`` is a path to load it from
         (or create it in) with :meth:`install_id_from_file`, only when the
-        client is enabled; an explicit ``install_id`` wins over it."""
+        client is enabled; an explicit ``install_id`` wins over it.
+
+        A value that is not a string for ``base_url``, ``application``,
+        ``version``, ``key`` or ``install_id`` is a :class:`ValueError` naming
+        the argument, even on a client that would be disabled: a settings
+        file that reads ``version: 1.4`` as a number should say so."""
+        for argument, given in (("base_url", base_url), ("application", application), ("version", version),
+                                ("key", key), ("install_id", install_id)):
+            if given and not isinstance(given, str):
+                raise ValueError("%s must be a string, not %s" % (argument, type(given).__name__))
         if not base_url or not base_url.strip():
             raise ValueError("base_url is required")
         if not application or not application.strip():

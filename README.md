@@ -25,8 +25,12 @@ trace.close()
 ## Every event carries the program's version
 
 The third argument to `TraceClient` is the program's own version, and it is
-required: a missing or blank one, or one over 255 characters after trimming,
-raises `ValueError`. Every event the client sends — `startup`, `command`,
+required: a missing or blank one, one over 255 characters after trimming, or
+one that is not a string, raises `ValueError`. So does a value that is not a
+string for `base_url`, `application`, `key` or `install_id=`, naming the
+argument, whether or not the client ends up enabled, so a settings file that
+turns `version: 1.4` into a number is caught at startup. Every event the
+client sends — `startup`, `command`,
 anything else — carries it as the tag `version`, so every event can be tied
 to a release, not just `startup`. An event that passes its own `version` tag
 keeps it, and the dict passed as `tags` is never modified. There is no need
