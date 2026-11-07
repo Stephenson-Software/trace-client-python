@@ -468,6 +468,40 @@ class TraceClientTest(unittest.TestCase):
             TraceClient(self.base_url, "MyGame", overlong)
         self.assertIn(str(MAX_TAG_LENGTH), str(raised.exception), "an overlong value names the limit")
 
+    def test_a_value_that_is_not_a_string_is_rejected_by_the_argument_it_was_given_for(self):
+        cases = (
+            ("base_url", "int", lambda **kw: TraceClient(5, "MyGame", "1.2.3", **kw)),
+            ("application", "int", lambda **kw: TraceClient(self.base_url, 5, "1.2.3", **kw)),
+            ("application", "bytes", lambda **kw: TraceClient(self.base_url, b"MyGame", "1.2.3", **kw)),
+            ("version", "float", lambda **kw: TraceClient(self.base_url, "MyGame", 1.4, **kw)),
+            ("key", "int", lambda **kw: TraceClient(self.base_url, "MyGame", "1.2.3", key=123, **kw)),
+            ("install_id", "int", lambda **kw: TraceClient(self.base_url, "MyGame", "1.2.3", install_id=7, **kw)),
+        )
+        for argument, type_name, construct in cases:
+            for options in ({}, {"enabled": False}):
+                with self.assertRaises(ValueError, msg=argument) as raised:
+                    construct(**options)
+                self.assertEqual("%s must be a string, not %s" % (argument, type_name), str(raised.exception),
+                                 "the only raising path should say which argument was wrong")
+
+    def test_a_rejected_key_is_not_repeated_in_the_error(self):
+        with self.assertRaises(ValueError) as raised:
+            TraceClient(self.base_url, "MyGame", "1.2.3", key=123456789)
+        self.assertNotIn("123456789", str(raised.exception), "an error can end up in a log; a key should not")
+
+    def test_an_empty_value_of_another_type_keeps_its_old_meaning(self):
+        # These never reached .strip(), so a program passing one already ran.
+        for empty in (0, False, []):
+            client = TraceClient(self.base_url, "MyGame", "1.2.3", key=empty, enabled=False)
+            self.assertEqual("config", client.disabled_reason, repr(empty))
+            self.assertEqual("no key", TraceClient(self.base_url, "MyGame", "1.2.3", key=empty).disabled_reason)
+            client = TraceClient(self.base_url, "MyGame", "1.2.3", key="k", install_id=empty)
+            self.assertIsNone(client.install_id, repr(empty))
+            client.close()
+            with self.assertRaises(ValueError, msg=repr(empty)) as raised:
+                TraceClient(self.base_url, "MyGame", empty)
+            self.assertEqual("version is required", str(raised.exception))
+
     def test_the_sender_is_one_daemon_thread_named_after_the_application(self):
         before = set(threading.enumerate())
         client = TraceClient(self.base_url, "  MyGame  ", "1.2.3", key="k")
@@ -569,9 +603,14 @@ class TraceClientTest(unittest.TestCase):
     def test_a_dropped_report_is_logged_at_debug_with_its_name(self):
         self.capture.release.clear()  # hold the sender on the first report
         client = TraceClient(self.base_url, "MyGame", "1.2.3", key="k")
-        # The queue holds QUEUE_CAPACITY and the sender at most one more, so
-        # the next report has nowhere to go whatever the sender has picked up.
-        for _ in range(TraceClient.QUEUE_CAPACITY + 1):
+        client.report("filler")
+        # Wait for the sender to take it: if it woke up between the last filler
+        # and the overflow, the overflow would find a free slot and not be dropped.
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and not client._queue.empty():
+            time.sleep(0.01)
+        self.assertTrue(client._queue.empty(), "the sender should have picked up the first report")
+        for _ in range(TraceClient.QUEUE_CAPACITY):
             client.report("filler")
         client.report("overflow-event")
         dropped = [r for r in self.log if r.getMessage() == "[trace] queue full, dropped overflow-event"]
