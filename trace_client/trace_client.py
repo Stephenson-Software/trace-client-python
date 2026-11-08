@@ -57,6 +57,21 @@ _INSTALL_ID_LINE = re.compile(r"^[A-Za-z0-9_.-]{1,%d}$" % MAX_TAG_LENGTH)
 _NOT_IN_A_HEADER = re.compile(r"[^\x20-\x7e\xa0-\xff]")
 
 
+class _RedirectsNotFollowed(urllib.request.HTTPRedirectHandler):
+    """Declines every redirect, so the redirect itself is the answer. Following
+    one would re-send the key to whatever host ``Location`` names, and a 301,
+    302 or 303 would turn the POST into an empty GET that loses the event
+    anyway. trace-client-java does not follow redirects either."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+# Every report goes through this opener rather than urlopen: urlopen follows
+# redirects, and install_opener would change the host program's urlopen too.
+_OPENER = urllib.request.build_opener(_RedirectsNotFollowed)
+
+
 def environment_opts_out(environ: Optional[Mapping[str, str]] = None) -> bool:
     """Whether the environment asks for usage reporting to be off, via
     ``TRACE_USAGE_REPORTING=off`` or ``DO_NOT_TRACK=1``. Only the listed
@@ -322,7 +337,7 @@ class TraceClient:
                     "Authorization": "Bearer " + self._key,
                     "User-Agent": _user_agent(self._application),
                 })
-            with urllib.request.urlopen(request, timeout=self.TIMEOUT_SECONDS) as response:
+            with _OPENER.open(request, timeout=self.TIMEOUT_SECONDS) as response:
                 status = response.status
                 response.read()
         except urllib.error.HTTPError as answered:
