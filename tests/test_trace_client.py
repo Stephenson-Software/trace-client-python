@@ -19,6 +19,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest import mock
 
 from trace_client import MAX_TAG_LENGTH, MAX_TAGS, TraceClient, __version__, environment_opts_out
+from trace_client import trace_client as trace_client_module
 
 _ENV_VARS = ("TRACE_USAGE_REPORTING", "DO_NOT_TRACK")
 
@@ -27,6 +28,7 @@ class _Capture:
     def __init__(self):
         self.requests = []
         self.reply_status = 201
+        self.location = None  # sent as a Location header when set
         self.arrived = threading.Event()
         self.release = threading.Event()
         self.release.set()  # by default answer at once
@@ -39,6 +41,7 @@ def _server(capture):
             body = self.rfile.read(length)
             capture.release.wait(10)
             capture.requests.append({
+                "method": self.command,
                 "path": self.path,
                 "authorization": self.headers.get("Authorization"),
                 "content_type": self.headers.get("Content-Type"),
@@ -46,9 +49,13 @@ def _server(capture):
                 "body": body.decode("utf-8"),
             })
             self.send_response(capture.reply_status)
+            if capture.location is not None:
+                self.send_header("Location", capture.location)
             self.send_header("Content-Length", "0")
             self.end_headers()
             capture.arrived.set()
+
+        do_GET = do_POST  # a followed 301/302/303 arrives as a GET
 
         def log_message(self, *args):  # keep test output quiet
             pass
@@ -198,6 +205,25 @@ class TraceClientTest(unittest.TestCase):
                             "only a 201 is success: %s" % [r.getMessage() for r in self.log])
             self.assertTrue(all(r.levelno == logging.DEBUG for r in self.log))
 
+    def test_a_redirect_is_logged_and_dropped_never_followed_with_the_key(self):
+        target = _Capture()
+        target_server = _server(target)
+        self.addCleanup(target_server.shutdown)
+        # Another port and another host name: what a redirect elsewhere looks like.
+        self.capture.location = "http://localhost:%d/elsewhere" % target_server.server_address[1]
+        for status in (301, 302, 303, 307, 308):
+            self.log.clear()
+            self.capture.reply_status = status
+            client = TraceClient(self.base_url, "MyGame", "1.2.3", key="secret-key")
+            client.report("startup")
+            client.close()  # joins the sender, so its log line is written by now
+            self.assertEqual([], target.requests,
+                             "a %d must not carry the key to the host it names" % status)
+            self.assertTrue(any("answered %d" % status in r.getMessage() for r in self.log),
+                            "the log names the redirect that lost the event: %s"
+                            % [r.getMessage() for r in self.log])
+            self.assertTrue(all(r.levelno == logging.DEBUG for r in self.log))
+
     def test_an_error_answer_whose_body_cannot_be_read_still_logs_its_status(self):
         class Unreadable(urllib.error.HTTPError):
             def read(self, *args):
@@ -206,7 +232,7 @@ class TraceClientTest(unittest.TestCase):
         answer = Unreadable(self.base_url + "/api/metrics", 503, "Service Unavailable", {}, None)
         crashes = []
         with mock.patch.object(threading, "excepthook", crashes.append), \
-                mock.patch.object(urllib.request, "urlopen", side_effect=answer):
+                mock.patch.object(trace_client_module._OPENER, "open", side_effect=answer):
             client = TraceClient(self.base_url, "MyGame", "1.2.3", key="k")
             client.report("startup")  # must not raise
             client.close()

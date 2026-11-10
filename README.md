@@ -159,6 +159,10 @@ key or value is `None` is left out, and every other key and value is sent as a
 string. An event with a blank `name` is not sent at all. The server assigns the
 timestamp. A `201` is success; anything else is logged at `DEBUG` and dropped.
 
+Redirects are not followed: a `3xx` answer is logged at `DEBUG` with its own
+status and the report is dropped, so the key is never re-sent to whatever host
+a `Location` header names. Point `base_url` at the server's final address.
+
 The `User-Agent` is `trace-client-python/<client version> (<application>)`. Any
 character of the application's name that a header cannot carry (outside printable
 Latin-1) becomes `?` there; `application` in the body is always the exact name.
