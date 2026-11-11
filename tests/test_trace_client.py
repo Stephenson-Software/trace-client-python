@@ -1,6 +1,8 @@
 """Drives the client against a real HTTP server on a loopback port -- the
 standard library's own, so the tests have no more dependencies than the
 client does."""
+import decimal
+import fractions
 import json
 import logging
 import os
@@ -616,8 +618,6 @@ class TraceClientTest(unittest.TestCase):
                              "%r is not a number the server can take; the event goes without it" % (odd,))
 
     def test_json_sends_other_real_numbers_as_floats(self):
-        import decimal
-        import fractions
         from trace_client.trace_client import _json
         self.assertEqual(1.5, json.loads(_json("App", "n", decimal.Decimal("1.5"), None))["value"])
         self.assertEqual(0.25, json.loads(_json("App", "n", fractions.Fraction(1, 4), None))["value"])
@@ -628,7 +628,6 @@ class TraceClientTest(unittest.TestCase):
                              "%r has no finite float; it is left out rather than raising" % (unsendable,))
 
     def test_report_with_a_decimal_value_still_delivers_the_event(self):
-        import decimal
         client = TraceClient(self.base_url, "MyGame", "1.2.3", key="k")
         try:
             client.report("score", decimal.Decimal("2.5"))
