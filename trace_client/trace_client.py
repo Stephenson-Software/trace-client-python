@@ -390,7 +390,7 @@ def _with_install(tags: Dict[str, str], install_id: Optional[str]) -> Dict[str, 
 def _number(value: object) -> Optional[float]:
     """``value`` as a number JSON can carry, or ``None`` for one it cannot:
     anything that is not a real number (a string, a bool), NaN and infinity.
-    A ``Decimal`` or numpy integer becomes a float rather than costing the
+    A ``Decimal`` or ``Fraction`` becomes a float rather than costing the
     event its place: ``json.dumps`` would refuse it, and the event with it."""
     if isinstance(value, bool) or not isinstance(value, (numbers.Real, decimal.Decimal)):
         return None
