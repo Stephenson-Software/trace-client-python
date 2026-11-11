@@ -8,8 +8,10 @@ MIT licensed. Keep this header when vendoring so the file can be found again.
 """
 from __future__ import annotations
 
+import decimal
 import json
 import logging
+import numbers
 import os
 import queue
 import re
@@ -272,8 +274,9 @@ class TraceClient:
                tags: Optional[Mapping[str, str]] = None) -> None:
         """Report that ``name`` happened, with an optional numeric value and
         optional string tags. Returns immediately; see the class docstring.
-        A blank ``name`` sends nothing. A NaN or infinite ``value``, and any
-        tag whose key or value is ``None``, is left out of the event."""
+        A blank ``name`` sends nothing. A ``value`` that is NaN, infinite or
+        not a real number (a string, a bool), and any tag whose key or value
+        is ``None``, is left out of the event; the event is still sent."""
         if self._queue is None:
             return
         try:
@@ -384,10 +387,28 @@ def _with_install(tags: Dict[str, str], install_id: Optional[str]) -> Dict[str, 
     return merged
 
 
+def _number(value: object) -> Optional[float]:
+    """``value`` as a number JSON can carry, or ``None`` for one it cannot:
+    anything that is not a real number (a string, a bool), NaN and infinity.
+    A ``Decimal`` or numpy integer becomes a float rather than costing the
+    event its place: ``json.dumps`` would refuse it, and the event with it."""
+    if isinstance(value, bool) or not isinstance(value, (numbers.Real, decimal.Decimal)):
+        return None
+    if type(value) not in (int, float):
+        try:
+            value = float(value)
+        except (OverflowError, ValueError):
+            return None
+    if value != value or value in (float("inf"), float("-inf")):
+        return None
+    return value  # type: ignore[return-value]
+
+
 def _json(application: str, name: str, value: Optional[float], tags: Optional[Mapping[str, str]]) -> bytes:
     payload: Dict[str, object] = {"application": application, "name": name}
-    if value is not None and value == value and value not in (float("inf"), float("-inf")):
-        payload["value"] = value
+    number = _number(value)
+    if number is not None:
+        payload["value"] = number
     if tags:
         clean = {str(k): str(v) for k, v in tags.items() if k is not None and v is not None}
         if clean:

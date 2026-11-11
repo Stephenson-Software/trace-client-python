@@ -152,8 +152,10 @@ There is no PyPI package yet; the file is the distribution.
 {"application":"roam","name":"command","value":1.0,"tags":{"name":"home","version":"1.4.0"}}
 ```
 
-`value` is omitted when not given, and when it is NaN or infinite (JSON has no
-such numbers); `tags` always holds at least `version`, and
+`value` is omitted when not given, when it is NaN or infinite (JSON has no
+such numbers), and when it is not a real number at all — a string such as
+`"3"`, or a `bool` — though the event itself is still sent. Any other real
+number (a `Decimal`, a numpy integer) is sent as a float; `tags` always holds at least `version`, and
 `install` when the client has an [installation ID](#every-event-carries-a-random-installation-id). A tag whose
 key or value is `None` is left out, and every other key and value is sent as a
 string. An event with a blank `name` is not sent at all. The server assigns the

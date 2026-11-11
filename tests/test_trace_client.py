@@ -608,6 +608,35 @@ class TraceClientTest(unittest.TestCase):
                              "JSON has no infinity; sending one would be rejected by the server")
         self.assertEqual(0, json.loads(_json("App", "n", 0, None))["value"], "zero is a value, not a missing one")
 
+    def test_json_leaves_out_a_value_that_is_not_a_real_number_but_keeps_the_event(self):
+        from trace_client.trace_client import _json
+        for odd in ("3", "", True, False, b"3", [1], object(), 1j):
+            body = json.loads(_json("App", "n", odd, None))
+            self.assertEqual({"application": "App", "name": "n"}, body,
+                             "%r is not a number the server can take; the event goes without it" % (odd,))
+
+    def test_json_sends_other_real_numbers_as_floats(self):
+        import decimal
+        import fractions
+        from trace_client.trace_client import _json
+        self.assertEqual(1.5, json.loads(_json("App", "n", decimal.Decimal("1.5"), None))["value"])
+        self.assertEqual(0.25, json.loads(_json("App", "n", fractions.Fraction(1, 4), None))["value"])
+        self.assertEqual(7, json.loads(_json("App", "n", 7, None))["value"])
+        for unsendable in (decimal.Decimal("NaN"), decimal.Decimal("sNaN"), decimal.Decimal("1e400"),
+                           fractions.Fraction(10 ** 400)):
+            self.assertNotIn("value", json.loads(_json("App", "n", unsendable, None)),
+                             "%r has no finite float; it is left out rather than raising" % (unsendable,))
+
+    def test_report_with_a_decimal_value_still_delivers_the_event(self):
+        import decimal
+        client = TraceClient(self.base_url, "MyGame", "1.2.3", key="k")
+        try:
+            client.report("score", decimal.Decimal("2.5"))
+            self.assertTrue(self.capture.arrived.wait(5), "a Decimal must not cost the event its place")
+        finally:
+            client.close()
+        self.assertEqual(2.5, json.loads(self.capture.requests[0]["body"])["value"])
+
     def test_json_omits_tags_that_are_empty_after_cleaning_and_stringifies_the_rest(self):
         from trace_client.trace_client import _json
         self.assertNotIn("tags", json.loads(_json("App", "n", None, {"none": None})))
