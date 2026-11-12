@@ -29,7 +29,10 @@ required: a missing or blank one, one over 255 characters after trimming, or
 one that is not a string, raises `ValueError`. So does a value that is not a
 string for `base_url`, `application`, `key` or `install_id=`, naming the
 argument, whether or not the client ends up enabled, so a settings file that
-turns `version: 1.4` into a number is caught at startup. Every event the
+turns `version: 1.4` into a number is caught at startup. An empty value of
+another type (`0`, `False`, `[]`) is taken as no value, as it was before
+that check: no key, no installation ID, or `"<argument> is required"` for the
+three positional arguments. Every event the
 client sends — `startup`, `command`,
 anything else — carries it as the tag `version`, so every event can be tied
 to a release, not just `startup`. An event that passes its own `version` tag

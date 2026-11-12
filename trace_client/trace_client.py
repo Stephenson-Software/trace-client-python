@@ -161,7 +161,9 @@ class TraceClient:
         A value that is not a string for ``base_url``, ``application``,
         ``version``, ``key`` or ``install_id`` is a :class:`ValueError` naming
         the argument, even on a client that would be disabled: a settings
-        file that reads ``version: 1.4`` as a number should say so."""
+        file that reads ``version: 1.4`` as a number should say so. An empty
+        one (``0``, ``False``, ``[]``) still means no value, as it did before
+        that check: no key, no ID, or "<argument> is required"."""
         for argument, given in (("base_url", base_url), ("application", application), ("version", version),
                                 ("key", key), ("install_id", install_id)):
             if given and not isinstance(given, str):
