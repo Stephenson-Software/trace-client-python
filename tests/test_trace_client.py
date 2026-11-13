@@ -512,6 +512,14 @@ class TraceClientTest(unittest.TestCase):
                 self.assertEqual("%s must be a string, not %s" % (argument, type_name), str(raised.exception),
                                  "the only raising path should say which argument was wrong")
 
+    def test_arguments_are_checked_before_the_environment_opt_out(self):
+        with mock.patch.dict(os.environ, {"DO_NOT_TRACK": "1"}):
+            with self.assertRaises(ValueError, msg="a bad argument should not hide behind the opt-out") as raised:
+                TraceClient(self.base_url, "MyGame", 1.4, key="k")
+            self.assertEqual("version must be a string, not float", str(raised.exception))
+            with self.assertRaises(ValueError, msg="a missing argument should not hide behind the opt-out"):
+                TraceClient(self.base_url, "", "1.2.3", key="k")
+
     def test_a_rejected_key_is_not_repeated_in_the_error(self):
         with self.assertRaises(ValueError) as raised:
             TraceClient(self.base_url, "MyGame", "1.2.3", key=123456789)
