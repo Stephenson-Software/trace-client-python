@@ -298,7 +298,10 @@ class TraceClient:
         and then exits within milliseconds -- a CLI, a short script -- would
         otherwise lose its one event to the race between queueing it and the
         sender thread picking it up. The bound still holds: an unreachable
-        server costs at most ``timeout``, never a hang. Safe to call more than
+        server costs at most ``timeout``, never a hang. Reports still queued
+        when ``timeout`` runs out are not discarded: the daemon thread keeps
+        sending them after ``close()`` returns, then stops, and whatever it
+        has not sent when the program exits is lost. Safe to call more than
         once, and on a disabled client."""
         if self._queue is None or self._thread is None:
             return

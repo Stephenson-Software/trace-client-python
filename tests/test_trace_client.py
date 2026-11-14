@@ -711,6 +711,20 @@ class TraceClientTest(unittest.TestCase):
         self.assertLess(time.monotonic() - before, 2.0, "draining must be bounded by the timeout")
         self.capture.release.set()
 
+    def test_reports_still_queued_at_the_timeout_are_sent_after_close_returns(self):
+        self.capture.release.clear()  # hold the sender on the first report
+        client = TraceClient(self.base_url, "MyGame", "1.2.3", key="k")
+        thread = client._thread
+        client.report("seq", tags={"n": "0"})
+        client.report("seq", tags={"n": "1"})
+        client.close(timeout=0.5)
+        self.assertTrue(thread.is_alive(), "close() returned on its timeout with the sender still busy")
+        self.capture.release.set()
+        thread.join(30)
+        self.assertFalse(thread.is_alive(), "the sender stops once it reaches what close() queued behind them")
+        self.assertEqual(["0", "1"], [json.loads(r["body"])["tags"]["n"] for r in self.capture.requests],
+                         "reports queued before close() are not discarded when its timeout runs out")
+
     def test_close_is_prompt_and_idempotent(self):
         client = TraceClient(self.base_url, "MyGame", "1.2.3", key="k")
         client.report("startup")
