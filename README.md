@@ -112,7 +112,7 @@ sends nothing.
 | **Returns immediately** | The HTTP call runs on one daemon thread the client owns. A game loop can report from its main thread and no frame waits on the network. |
 | **Never raises** | A server that is down, slow, or rejecting the key is a dropped report, not an exception in your program. Drops are logged at `DEBUG` on the `trace` logger, otherwise not at all. |
 | **Bounded** | At most 256 reports wait to be sent; past that, new ones are dropped. A trace server that is unreachable for a week costs a few kilobytes, not your memory. |
-| **`close()` drains** | Reports already queued get up to the client timeout (5 s total, or `close(timeout=...)`) to be sent before `close()` returns, so a CLI that reports and exits at once does not lose its event. Still bounded: an unreachable server delays exit by at most the timeout. Reports still queued when the timeout runs out are not discarded: the daemon thread keeps sending them after `close()` returns, then stops; whatever it has not sent when the program exits is lost. |
+| **`close()` drains** | Reports already queued get up to the client timeout (5 s total, or `close(timeout=...)`) to be sent before `close()` returns, so a CLI that reports and exits at once does not lose its event. Still bounded: an unreachable server delays exit by at most the timeout. Reports still queued when the timeout runs out are not discarded: the daemon thread keeps sending them after `close()` returns, then stops; whatever it has not sent when the program exits is lost. On a full queue, `close()` drops the oldest queued report (logged at `DEBUG`) to make room for the signal that stops the thread. |
 
 ## Turning it off
 

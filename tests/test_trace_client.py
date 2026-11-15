@@ -764,6 +764,28 @@ class TraceClientTest(unittest.TestCase):
         self.assertIn("0", sent)
         self.assertIn(str(TraceClient.QUEUE_CAPACITY), sent)
 
+    def test_the_report_close_drops_from_a_full_queue_is_logged_at_debug(self):
+        self.capture.release.clear()  # hold the sender on the first report
+        client = TraceClient(self.base_url, "MyGame", "1.2.3", key="k")
+        thread = client._thread
+        client.report("in-flight")
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and not client._queue.empty():
+            time.sleep(0.01)  # until the sender has taken it and is waiting on the server
+        self.assertTrue(client._queue.empty(), "the sender should have picked up the first report")
+        client.report("oldest-queued")
+        for _ in range(TraceClient.QUEUE_CAPACITY - 1):
+            client.report("filler")
+        client.close(timeout=0.5)
+        dropped = [r for r in self.log if r.getMessage().startswith("[trace] queue full at close, dropped ")]
+        self.assertEqual(1, len(dropped),
+                         "the report close() displaces is logged, like every other drop: %r"
+                         % [r.getMessage() for r in self.log])
+        self.assertIn("oldest-queued", dropped[0].getMessage(), "the log names the report it dropped")
+        self.assertEqual(logging.DEBUG, dropped[0].levelno, "drops are logged at DEBUG only")
+        self.capture.release.set()
+        thread.join(30)
+
     # -- the per-installation ID ------------------------------------------
 
     def _tmpdir(self):
