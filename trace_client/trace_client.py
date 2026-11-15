@@ -301,8 +301,10 @@ class TraceClient:
         server costs at most ``timeout``, never a hang. Reports still queued
         when ``timeout`` runs out are not discarded: the daemon thread keeps
         sending them after ``close()`` returns, then stops, and whatever it
-        has not sent when the program exits is lost. Safe to call more than
-        once, and on a disabled client."""
+        has not sent when the program exits is lost. On a full queue the
+        oldest queued report is dropped (logged at DEBUG) to make room for
+        the signal that stops the thread. Safe to call more than once, and
+        on a disabled client."""
         if self._queue is None or self._thread is None:
             return
         q, thread = self._queue, self._thread
@@ -314,7 +316,8 @@ class TraceClient:
             # the 257th. Drop the oldest to make room -- one lost report beats a
             # thread that never stops.
             try:
-                q.get_nowait()
+                dropped = q.get_nowait()
+                _LOG.debug("[trace] queue full at close, dropped %s", dropped)
                 q.put_nowait(None)
             except (queue.Empty, queue.Full):
                 pass
