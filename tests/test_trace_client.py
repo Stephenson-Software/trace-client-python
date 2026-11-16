@@ -942,6 +942,15 @@ class TraceClientTest(unittest.TestCase):
         self.assertEqual({"install": "theirs", "version": "1.2.3"}, self._sent_tags(client, tags=tags))
         self.assertEqual({"install": "theirs"}, tags, "the caller's tags are never modified")
 
+    def test_a_none_install_tag_does_not_suppress_the_installation_id(self):
+        client = TraceClient(self.base_url, "MyGame", "1.2.3", key="k", install_id="mine")
+        self.assertEqual({"version": "1.2.3", "install": "mine"}, self._sent_tags(client, tags={"install": None}),
+                         "a None tag is left out, so the client's own ID takes its place, as with version")
+        self.capture.arrived.clear()
+        client = TraceClient(self.base_url, "MyGame", "1.2.3", key="k", install_id="mine")
+        self.assertEqual({"version": "1.2.3", "install": "7"}, self._sent_tags(client, tags={"install": 7}),
+                         "any other value is the event's own, sent as a string, and wins")
+
     def test_install_tag_never_pushes_an_event_past_the_tag_cap(self):
         client = TraceClient(self.base_url, "MyGame", "1.2.3", key="k", install_id="mine")
         full = {"t%d" % i: "v" for i in range(MAX_TAGS - 1)}  # plus version = MAX_TAGS
