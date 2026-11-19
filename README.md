@@ -10,11 +10,11 @@ on the program side is meant to stay one call. The Java counterpart is
 the two speak the same wire format and make the same promises.
 
 ```python
-from trace_client import TraceClient
+from trace_client import TraceClient, allows_reporting
 
 trace = TraceClient("https://trace.danielstephenson.dev", "roam", __version__,
                     key=settings.usage_reporting_key,
-                    enabled=settings.usage_reporting_enabled)
+                    enabled=allows_reporting(settings.usage_reporting_enabled))
 trace.report("startup")
 trace.report("world-load", tags={"kind": "procedural"})
 
@@ -68,7 +68,7 @@ in is a file next to the program's own settings:
 ```python
 trace = TraceClient("https://trace.danielstephenson.dev", "roam", __version__,
                     key=settings.usage_reporting_key,
-                    enabled=settings.usage_reporting_enabled,
+                    enabled=allows_reporting(settings.usage_reporting_enabled),
                     install_id_file=os.path.join(settings_dir, "trace-install-id"))
 ```
 
@@ -116,18 +116,31 @@ sends nothing.
 
 ## Turning it off
 
-Reporting is **opt-out**. Any one of these yields a client that does nothing
-and costs nothing; the first that applies is the reason:
+Reporting is **opt-out**, and the person running the program always has the
+last word. **Every switch fails closed:** a value that does not clearly mean
+"on" — a typo, `"false"` as a string, an empty value, `None` — turns
+reporting off, and nothing in this client ever turns a switch back on. Any
+one of these yields a client that does nothing and costs nothing; the first
+that applies is the reason:
 
-- **Environment, for every trace-reporting program at once:**
-  `TRACE_USAGE_REPORTING=off` (also `false`, `0`, `no`; case-insensitive) or
-  `DO_NOT_TRACK=1` (also `true`, `yes`; the
-  [consoledonottrack.com](https://consoledonottrack.com) convention). The
-  constructor checks these before `enabled` and the key, so they win over the
-  program's own setting. (It checks its arguments before either, so a bad
-  argument still raises `ValueError` with reporting switched off.) Any other
-  value, or an unset variable, leaves that setting in charge.
-- **The program's own setting:** `enabled=False`.
+- **Environment, for every trace-reporting program at once** (case-insensitive,
+  surrounding space ignored): `TRACE_USAGE_REPORTING` set to anything but
+  blank, `true`, `on`, `yes` or `1` (so `off`, `false`, `0`, `no`,
+  `disabled`, …); or `DO_NOT_TRACK` set to anything but blank, `0`, `false`,
+  `off` or `no` (so `1`, `true`, `yes`, …; the
+  [consoledonottrack.com](https://consoledonottrack.com) convention). An
+  environment that cannot be read counts as opting out. The constructor
+  checks these before `enabled` and the key, so they win over the program's
+  own setting. (It checks its arguments before either, so a bad argument
+  still raises `ValueError` with reporting switched off.) An unset or blank
+  variable leaves that setting in charge. `environment_opts_out()` answers
+  the same question for the program.
+- **The program's own setting:** `enabled=` anything but `True` or a string
+  `true`/`on`/`yes`/`1`. Read the setting with `allows_reporting(value)`,
+  which fails closed the same way: `False`, `"false"`, `"off"`, a typo, a
+  number and `None` (a missing setting) are all off. Pass the raw value, not
+  `bool(value)` — `bool("false")` is `True`. The constructor reads
+  `enabled=` through `allows_reporting` as well, so `enabled="false"` is off.
 - **No key** (or a blank one).
 
 `client.disabled_reason` says which one applied — `"environment"`, `"config"`

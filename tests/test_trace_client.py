@@ -20,7 +20,8 @@ import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest import mock
 
-from trace_client import MAX_TAG_LENGTH, MAX_TAGS, TraceClient, __version__, environment_opts_out
+from trace_client import (MAX_TAG_LENGTH, MAX_TAGS, TraceClient, __version__, allows_reporting,
+                          environment_opts_out)
 from trace_client import trace_client as trace_client_module
 
 _ENV_VARS = ("TRACE_USAGE_REPORTING", "DO_NOT_TRACK")
@@ -304,15 +305,36 @@ class TraceClientTest(unittest.TestCase):
         for value in ("off", "false", "0", "no", "OFF", "False", "No", " off "):
             self._assert_environment_disables("TRACE_USAGE_REPORTING", value)
 
+    def test_TRACE_USAGE_REPORTING_set_to_anything_but_a_clear_on_disables(self):
+        # Fails closed: a typo or an unfamiliar word is an opt-out, never consent.
+        for value in ("disabled", "of", "nope", "2", "-1", "ture", "none", "never", '"true"'):
+            self._assert_environment_disables("TRACE_USAGE_REPORTING", value)
+
     def test_DO_NOT_TRACK_disables_reporting_for_every_accepted_value(self):
         for value in ("1", "true", "yes", "TRUE", "Yes", " 1 "):
             self._assert_environment_disables("DO_NOT_TRACK", value)
 
-    def test_other_environment_values_leave_the_program_setting_in_charge(self):
+    def test_DO_NOT_TRACK_set_to_anything_but_a_clear_no_disables(self):
+        for value in ("on", "2", "y", "enabled", "please", "nein"):
+            self._assert_environment_disables("DO_NOT_TRACK", value)
+
+    def test_an_environment_that_cannot_be_read_disables_and_does_not_raise(self):
+        class Unreadable(dict):
+            def get(self, *args, **kwargs):
+                raise PermissionError("no")
+        self.assertTrue(environment_opts_out(Unreadable()))
+        self.assertTrue(environment_opts_out({"DO_NOT_TRACK": 1}), "a value that is not a string opts out")
+        with mock.patch.object(os, "environ", Unreadable()):
+            client = TraceClient(self.base_url, "MyGame", "1.2.3", key="k")
+        self.assertFalse(client.enabled)
+        self.assertEqual("environment", client.disabled_reason)
+
+    def test_blank_or_clearly_on_environment_values_leave_the_program_setting_in_charge(self):
         for variable, value in (("TRACE_USAGE_REPORTING", "on"), ("TRACE_USAGE_REPORTING", ""),
-                                ("TRACE_USAGE_REPORTING", "disabled"), ("TRACE_USAGE_REPORTING", "1"),
+                                ("TRACE_USAGE_REPORTING", "  "), ("TRACE_USAGE_REPORTING", "1"),
+                                ("TRACE_USAGE_REPORTING", "TRUE"), ("TRACE_USAGE_REPORTING", " yes "),
                                 ("DO_NOT_TRACK", "0"), ("DO_NOT_TRACK", ""), ("DO_NOT_TRACK", "false"),
-                                ("DO_NOT_TRACK", "off")):
+                                ("DO_NOT_TRACK", "off"), ("DO_NOT_TRACK", " No ")):
             with mock.patch.dict(os.environ, {variable: value}):
                 self.assertFalse(environment_opts_out(), "%s=%r is not an opt-out" % (variable, value))
                 client = TraceClient(self.base_url, "MyGame", "1.2.3", key="k")
@@ -320,6 +342,23 @@ class TraceClientTest(unittest.TestCase):
                 self.assertIsNone(client.disabled_reason)
                 client.close()
         self.assertFalse(environment_opts_out(), "an unset variable is not an opt-out")
+
+    def test_allows_reporting_is_true_only_for_True_or_a_clear_on_string(self):
+        for setting in (True, "true", "on", "yes", "1", "TRUE", " On ", "Yes\n"):
+            self.assertTrue(allows_reporting(setting), repr(setting))
+        for setting in (False, None, "false", "off", "no", "0", "", "  ", "ture", '"false"', '"true"', "disabled",
+                        1, 0, 1.0, [], ["true"], {"enabled": True}, object(), b"true"):
+            self.assertFalse(allows_reporting(setting), repr(setting))
+
+    def test_enabled_is_read_through_allows_reporting(self):
+        for setting in ("false", "off", "no", '"false"', "ture", None, 1, "0"):
+            client = TraceClient(self.base_url, "MyGame", "1.2.3", key="k", enabled=setting)
+            self.assertFalse(client.enabled, "enabled=%r must not report" % (setting,))
+            self.assertEqual("config", client.disabled_reason, repr(setting))
+        for setting in (True, "true", " ON ", "yes", "1"):
+            client = TraceClient(self.base_url, "MyGame", "1.2.3", key="k", enabled=setting)
+            self.assertTrue(client.enabled, "enabled=%r reports" % (setting,))
+            client.close()
 
     def test_environment_wins_over_the_config_flag_and_over_the_key(self):
         # enabled=True with a key, and the environment still says no.
@@ -345,6 +384,8 @@ class TraceClientTest(unittest.TestCase):
         self.assertTrue(environment_opts_out({"DO_NOT_TRACK": "yes"}))
         self.assertFalse(environment_opts_out({}))
         self.assertFalse(environment_opts_out({"DO_NOT_TRACK": "0", "TRACE_USAGE_REPORTING": "on"}))
+        self.assertTrue(environment_opts_out({"TRACE_USAGE_REPORTING": "disabled"}))
+        self.assertTrue(environment_opts_out({"DO_NOT_TRACK": "on"}))
 
     def test_environment_opts_out_reads_only_the_mapping_it_is_given(self):
         with mock.patch.dict(os.environ, {"DO_NOT_TRACK": "1"}):
@@ -357,12 +398,12 @@ class TraceClientTest(unittest.TestCase):
 
     def test_user_agent_names_the_client_version(self):
         from trace_client import __version__
-        self.assertEqual("0.4.2", __version__)
+        self.assertEqual("0.5.0", __version__)
         client = TraceClient(self.base_url, "MyGame", "1.2.3", key="k")
         client.report("startup")
         self.assertTrue(self.capture.arrived.wait(5))
         client.close()
-        self.assertEqual("trace-client-python/0.4.2 (MyGame)", self.capture.requests[0]["user_agent"])
+        self.assertEqual("trace-client-python/0.5.0 (MyGame)", self.capture.requests[0]["user_agent"])
 
     def test_every_place_the_version_is_written_agrees_with_version(self):
         # A vendored copy is identified by its header, an installed one by
