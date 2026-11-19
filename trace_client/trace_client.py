@@ -1,4 +1,4 @@
-"""trace-client 0.4.2 -- https://github.com/Stephenson-Software/trace-client-python
+"""trace-client 0.5.0 -- https://github.com/Stephenson-Software/trace-client-python
 
 One call to report that a program was used. Copy this file into a project as
 is, or vendor the package; either way there is nothing else to add. Standard
@@ -21,19 +21,22 @@ import urllib.request
 import uuid
 from typing import Dict, Mapping, Optional, Union
 
-__version__ = "0.4.2"
+__version__ = "0.5.0"
 
 _LOG = logging.getLogger("trace")
 
 #: Environment variables that turn reporting off for every program using a
-#: trace client, checked before the program's own setting. Set
-#: ``TRACE_USAGE_REPORTING=off`` (also ``false``, ``0``, ``no``; case does not
-#: matter) or ``DO_NOT_TRACK=1`` (also ``true``, ``yes``; see
-#: https://consoledonottrack.com).
+#: trace client, checked before the program's own setting. Both fail closed:
+#: ``TRACE_USAGE_REPORTING`` set to anything but blank, ``true``, ``on``,
+#: ``yes`` or ``1`` turns reporting off (so ``off``, ``false``, ``0``, ``no``,
+#: ``disabled``, a typo, ...), and so does ``DO_NOT_TRACK`` set to anything
+#: but blank, ``0``, ``false``, ``off`` or ``no`` (so ``1``, ``true``,
+#: ``yes``, ...; see https://consoledonottrack.com). Case and surrounding
+#: space do not matter.
 ENV_TRACE_USAGE_REPORTING = "TRACE_USAGE_REPORTING"
 ENV_DO_NOT_TRACK = "DO_NOT_TRACK"
-_OFF_VALUES = frozenset(("off", "false", "0", "no"))
-_DO_NOT_TRACK_VALUES = frozenset(("1", "true", "yes"))
+_ON_VALUES = frozenset(("true", "on", "yes", "1"))
+_NEGATIVE_VALUES = frozenset(("false", "off", "no", "0"))
 
 #: The values :attr:`TraceClient.disabled_reason` can take. First match wins.
 REASON_ENVIRONMENT = "environment"
@@ -75,16 +78,38 @@ _OPENER = urllib.request.build_opener(_RedirectsNotFollowed)
 
 
 def environment_opts_out(environ: Optional[Mapping[str, str]] = None) -> bool:
-    """Whether the environment asks for usage reporting to be off, via
-    ``TRACE_USAGE_REPORTING=off`` or ``DO_NOT_TRACK=1``. Only the listed
-    values count; anything else (including an empty value) leaves the
-    program's own setting in charge."""
-    env = os.environ if environ is None else environ
-    if env.get(ENV_TRACE_USAGE_REPORTING, "").strip().lower() in _OFF_VALUES:
+    """Whether the environment asks for usage reporting to be off. Fails
+    closed: ``TRACE_USAGE_REPORTING`` set to anything but blank or a clear
+    "on" (``true``, ``on``, ``yes``, ``1``), or ``DO_NOT_TRACK`` set to
+    anything but blank or a clear "no" (``0``, ``false``, ``off``, ``no``),
+    opts out; case and surrounding space do not matter. An environment that
+    cannot be read -- or a value that is not a string -- opts out too: it may
+    hold ``DO_NOT_TRACK=1``. Never raises."""
+    try:
+        env = os.environ if environ is None else environ
+        usage_reporting = (env.get(ENV_TRACE_USAGE_REPORTING) or "").strip().lower()
+        if usage_reporting and usage_reporting not in _ON_VALUES:
+            return True
+        do_not_track = (env.get(ENV_DO_NOT_TRACK) or "").strip().lower()
+        return bool(do_not_track) and do_not_track not in _NEGATIVE_VALUES
+    except Exception:  # noqa: BLE001 - an environment that cannot be read counts as opting out
         return True
-    if env.get(ENV_DO_NOT_TRACK, "").strip().lower() in _DO_NOT_TRACK_VALUES:
-        return True
-    return False
+
+
+def allows_reporting(setting: object) -> bool:
+    """Whether a program's own reporting setting, as read from its
+    configuration, allows reporting -- for ``enabled=``. Fails closed: only
+    ``True``, or a string reading ``true``, ``on``, ``yes`` or ``1`` (any
+    case, surrounding space ignored), allows it. Anything else turns
+    reporting off: ``False``, ``"false"``, ``"off"``, ``"no"``, a typo, a
+    number, ``None`` (a missing setting), a quoted ``'"false"'``.
+
+    Pass the raw value, e.g. ``settings.get("usage_reporting")``, rather than
+    ``bool(...)`` of it: ``bool("false")`` is ``True``. The constructor reads
+    ``enabled=`` through this function too, so ``enabled="false"`` is off."""
+    if isinstance(setting, bool):
+        return setting
+    return isinstance(setting, str) and setting.strip().lower() in _ON_VALUES
 
 
 class TraceClient:
@@ -108,7 +133,10 @@ class TraceClient:
     does nothing and costs nothing. So does the environment: the constructor
     checks ``TRACE_USAGE_REPORTING=off`` and ``DO_NOT_TRACK=1`` before it
     looks at ``enabled``, so a user can switch off every trace-reporting
-    program at once. :attr:`disabled_reason` says which of those applied
+    program at once. Every switch fails closed: a value that does not clearly
+    mean "on" turns reporting off (see :func:`environment_opts_out` and
+    :func:`allows_reporting`), and nothing in this client turns a switch
+    back on. :attr:`disabled_reason` says which of those applied
     (``"environment"``, ``"config"`` or ``"no key"``; ``None`` when on) so
     the program can say so in its notice. Programs that run on other
     people's machines should expose that switch in their settings and say
@@ -132,7 +160,8 @@ class TraceClient:
     ::
 
         trace = TraceClient("https://trace.example.org", "roam", __version__,
-                            key=settings.usage_key, enabled=settings.usage_reporting)
+                            key=settings.usage_key,
+                            enabled=allows_reporting(settings.usage_reporting))
         trace.report("startup")
         ...
         trace.close()  # on shutdown
@@ -142,7 +171,7 @@ class TraceClient:
     TIMEOUT_SECONDS = 5.0
 
     def __init__(self, base_url: str, application: str, version: str, *, key: Optional[str] = None,
-                 enabled: bool = True, install_id: Optional[str] = None,
+                 enabled: Union[bool, str, None] = True, install_id: Optional[str] = None,
                  install_id_file: Optional[Union[str, "os.PathLike[str]"]] = None) -> None:
         """A client for the program named ``application``, at ``version``,
         reporting to the trace server at ``base_url``. The version is sent as
@@ -187,12 +216,13 @@ class TraceClient:
         self._thread: Optional[threading.Thread] = None
         #: Why this client reports nothing: ``"environment"`` (the
         #: ``TRACE_USAGE_REPORTING`` / ``DO_NOT_TRACK`` variables),
-        #: ``"config"`` (``enabled=False``) or ``"no key"``; ``None`` when it
+        #: ``"config"`` (``enabled`` not ``True`` or an "on" string -- see
+        #: :func:`allows_reporting`) or ``"no key"``; ``None`` when it
         #: reports. Decided once, here, in that order of precedence.
         self.disabled_reason: Optional[str] = None
         if environment_opts_out():
             self.disabled_reason = REASON_ENVIRONMENT
-        elif not enabled:
+        elif not allows_reporting(enabled):
             self.disabled_reason = REASON_CONFIG
         elif not self._key:
             self.disabled_reason = REASON_NO_KEY
