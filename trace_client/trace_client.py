@@ -83,17 +83,30 @@ def environment_opts_out(environ: Optional[Mapping[str, str]] = None) -> bool:
     "on" (``true``, ``on``, ``yes``, ``1``), or ``DO_NOT_TRACK`` set to
     anything but blank or a clear "no" (``0``, ``false``, ``off``, ``no``),
     opts out; case and surrounding space do not matter. An environment that
-    cannot be read -- or a value that is not a string -- opts out too: it may
-    hold ``DO_NOT_TRACK=1``. Never raises."""
+    cannot be read -- or a value that is not a string, even ``0`` or
+    ``False`` -- opts out too: it may hold ``DO_NOT_TRACK=1``. Never raises."""
     try:
         env = os.environ if environ is None else environ
-        usage_reporting = (env.get(ENV_TRACE_USAGE_REPORTING) or "").strip().lower()
+        usage_reporting = _variable(env, ENV_TRACE_USAGE_REPORTING)
         if usage_reporting and usage_reporting not in _ON_VALUES:
             return True
-        do_not_track = (env.get(ENV_DO_NOT_TRACK) or "").strip().lower()
+        do_not_track = _variable(env, ENV_DO_NOT_TRACK)
         return bool(do_not_track) and do_not_track not in _NEGATIVE_VALUES
     except Exception:  # noqa: BLE001 - an environment that cannot be read counts as opting out
         return True
+
+
+def _variable(env: Mapping[str, str], name: str) -> str:
+    """The variable ``name`` in ``env``, trimmed and lower-cased; blank when
+    unset. A value that is not a string raises, so the caller opts out: only
+    a missing variable may leave reporting on, never a ``0`` or ``False``
+    that a blanket ``or ""`` would have read as unset."""
+    value = env.get(name)
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise TypeError("%s is %s, not a string" % (name, type(value).__name__))
+    return value.strip().lower()
 
 
 def allows_reporting(setting: object) -> bool:
