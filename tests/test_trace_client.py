@@ -329,6 +329,14 @@ class TraceClientTest(unittest.TestCase):
         self.assertFalse(client.enabled)
         self.assertEqual("environment", client.disabled_reason)
 
+    def test_a_value_that_is_not_a_string_opts_out_even_when_it_is_empty(self):
+        for variable in ("TRACE_USAGE_REPORTING", "DO_NOT_TRACK"):
+            for value in (0, False, [], 0.0, b"", 1, True):
+                self.assertTrue(environment_opts_out({variable: value}),
+                                "%s=%r is not a string, so it must opt out, not read as unset" % (variable, value))
+        self.assertFalse(environment_opts_out({"TRACE_USAGE_REPORTING": None, "DO_NOT_TRACK": None}),
+                         "a None value is a missing variable and leaves the program setting in charge")
+
     def test_blank_or_clearly_on_environment_values_leave_the_program_setting_in_charge(self):
         for variable, value in (("TRACE_USAGE_REPORTING", "on"), ("TRACE_USAGE_REPORTING", ""),
                                 ("TRACE_USAGE_REPORTING", "  "), ("TRACE_USAGE_REPORTING", "1"),
