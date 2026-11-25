@@ -1,0 +1,19 @@
+{
+  "out": ".",
+  "shots": [
+    {
+      "name": "demo-page", "kind": "prep", "backend": "command",
+      "argv": ["python3", "render_terminal.py", "build/demo.html"],
+      "inputs": ["render_terminal.py", "../../examples/demo.py", "../../trace_client/trace_client.py"],
+      "outputs": ["build/demo.html"]
+    },
+    {
+      "name": "demo-output", "kind": "still", "format": "png", "device": "desktop",
+      "depends": ["demo-page"],
+      "url": "file://{manifest_dir}/build/demo.html",
+      "crop": { "of": "#term", "pad": 0 },
+      "caption": "examples/demo.py: three events reach a stand-in trace server, then each opt-out yields a client that sends nothing.",
+      "alt": "Terminal output of python examples/demo.py: the stand-in server receives three POST /api/metrics events with a Bearer key, the trace-client-python User-Agent, and version and install tags on every event; then DO_NOT_TRACK=1, enabled=\"false\" and an empty key each give enabled=False with disabled_reason environment, config and no key."
+    }
+  ]
+}

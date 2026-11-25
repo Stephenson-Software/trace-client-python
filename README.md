@@ -22,6 +22,57 @@ trace.report("world-load", tags={"kind": "procedural"})
 trace.close()
 ```
 
+![Terminal output of examples/demo.py: three events reach a stand-in trace server as POST /api/metrics with a Bearer key, each tagged with version and install; then DO_NOT_TRACK=1, enabled="false" and an empty key each give a client that sends nothing](docs/screenshots/demo-output.png)
+
+*The real output of [`python examples/demo.py`](examples/demo.py), which runs the
+client against a stand-in trace server on a loopback port. Nothing leaves the
+machine.*
+
+## How a report travels
+
+`report()` only builds the JSON body and puts it on a bounded queue; one daemon
+thread the client owns does the HTTP. The opt-outs are decided once, in the
+constructor, and a disabled client never starts that thread.
+
+```mermaid
+sequenceDiagram
+    participant P as Program
+    participant C as TraceClient
+    participant Q as Queue (max 256)
+    participant S as Sender thread
+    participant T as trace server
+
+    P->>C: TraceClient(base_url, application, version, key=..., enabled=...)
+    Note over C: opt-outs, first match wins:<br/>environment, then enabled=, then key<br/>disabled: no thread, no install ID, nothing sent
+    C->>S: start daemon thread (enabled only)
+    P->>C: report("startup", value, tags)
+    Note over C: add tags version and install,<br/>drop None tags and non-real values
+    C->>Q: put_nowait(JSON body)
+    C-->>P: returns at once (full queue: dropped, logged at DEBUG)
+    Q->>S: get()
+    S->>T: POST /api/metrics<br/>Authorization: Bearer key
+    alt 201
+        T-->>S: 201 Created
+    else any other status (redirects not followed)
+        T-->>S: 3xx / 4xx / 5xx
+    end
+    Note over S: anything but 201, or no answer in 5 s:<br/>logged at DEBUG, report dropped
+    P->>C: close(timeout=5)
+    C->>Q: put stop signal behind queued reports
+    Q->>S: remaining reports, then stop
+    C-->>P: returns when drained or after timeout
+```
+
+## Screenshots
+
+| | |
+|---|---|
+| ![Terminal output of examples/demo.py showing the three events the stand-in server received and the three opt-outs](docs/screenshots/demo-output.png) | **`python examples/demo.py`.** The client reports `startup`, `world-load` and `level-complete`; every event arrives at `POST /api/metrics` with the key as a Bearer token, the `trace-client-python/<version>` User-Agent, and the `version` and `install` tags added by the client. Then `DO_NOT_TRACK=1`, `enabled="false"` and an empty key each give a client with `enabled=False` and the matching `disabled_reason`. (The install ID is a fresh random UUID each run; the example prints its first eight characters.) |
+
+**Regenerating screenshots:** `darkroom shoot docs/screenshots/media.json` (the
+[darkroom](https://github.com/Preponderous-Software/darkroom) shot list runs the
+example and screenshots its output).
+
 ## Every event carries the program's version
 
 The third argument to `TraceClient` is the program's own version, and it is
@@ -204,6 +255,10 @@ Pyodide has no real threads and no outbound sockets, so build the client with
 ```
 python -m unittest -v
 ```
+
+To see the client work end to end without a trace server, run
+`python examples/demo.py`: it starts a stand-in server on a loopback port and
+prints what it receives.
 
 Tests run the client against the standard library's own `ThreadingHTTPServer`
 on a loopback port. CI runs them on Python 3.8, 3.10 and 3.12.
